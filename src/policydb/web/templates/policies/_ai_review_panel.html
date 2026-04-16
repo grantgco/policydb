@@ -7,15 +7,15 @@
      ai_sub_coverage_data  — list of sub-coverage dicts
      ai_exposure_data      — list of exposure dicts (valid + invalid)
      ai_exposure_year      — int year the exposures roll up to
-     ai_parsed_json        — JSON string of all parsed data (for apply endpoints)
+     ai_parsed             — dict of all parsed data (for apply endpoints), serialized via `| tojson`
      policy                — current policy dict
 #}
-<div id="ai-review-panel" class="mb-6" data-parsed='{{ ai_parsed_json }}'>
+<div id="ai-review-panel" class="mb-6" data-parsed='{{ ai_parsed | tojson }}'>
 
   {# ══ Header ══ #}
   <div class="flex items-center gap-3 mb-4">
     <div class="flex items-center gap-2">
-      <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
       </svg>
       <h3 class="text-sm font-semibold text-gray-900">AI Import Review</h3>
@@ -29,36 +29,36 @@
      SECTION A — Policy Field Diffs
      ══════════════════════════════════════════════════════════════════════════ #}
   {% if ai_policy_diffs %}
-  <div class="card border-indigo-200 bg-indigo-50/20 mb-4" id="ai-policy-diffs-card">
-    <div class="px-5 py-3 border-b border-indigo-100 flex items-center justify-between">
-      <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wide">Policy Fields</span>
+  <div class="card border-blue-200 bg-blue-50/20 mb-4" id="ai-policy-diffs-card">
+    <div class="px-5 py-3 border-b border-blue-100 flex items-center justify-between">
+      <span class="text-xs font-semibold text-blue-600 uppercase tracking-wide">Policy Fields</span>
       <span class="text-xs text-gray-400">{{ ai_policy_diffs | length }} change{{ 's' if ai_policy_diffs | length != 1 }}</span>
     </div>
-    <div class="divide-y divide-indigo-50">
+    <div class="divide-y divide-blue-50">
       {% for d in ai_policy_diffs %}
-      <label class="flex items-center gap-4 px-5 py-2.5 hover:bg-indigo-50/40 cursor-pointer transition-colors">
+      <label class="flex items-center gap-4 px-5 py-2.5 hover:bg-blue-50/40 cursor-pointer transition-colors">
         <input type="checkbox" name="apply_field" value="{{ d.field }}"
-               class="ai-field-cb rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+               class="ai-field-cb rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                {% if d.is_fill %}checked{% endif %}>
         <span class="text-xs font-medium text-gray-500 w-36 shrink-0">{{ d.label }}</span>
         <span class="text-xs text-gray-400 flex-1 truncate" title="{{ d.current or '(empty)' }}">
           {% if d.current %}{{ d.current }}{% else %}<em class="text-gray-300">empty</em>{% endif %}
         </span>
-        <svg class="w-4 h-4 text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-4 h-4 text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
         </svg>
-        <span class="text-xs font-medium text-indigo-700 flex-1 truncate" title="{{ d.extracted }}">
+        <span class="text-xs font-medium text-blue-700 flex-1 truncate" title="{{ d.extracted }}">
           {{ d.extracted }}
         </span>
       </label>
       {% endfor %}
     </div>
-    <div class="px-5 py-3 border-t border-indigo-100 flex items-center gap-3">
+    <div class="px-5 py-3 border-t border-blue-100 flex items-center gap-3">
       <button type="button" onclick="applyPolicyFields()"
-              class="px-4 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-colors">
+              class="px-4 py-1.5 rounded-lg text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors">
         Apply Selected Fields
       </button>
-      <button type="button" onclick="toggleAllFieldCbs(true)" class="text-xs text-indigo-500 hover:text-indigo-700">Select All</button>
+      <button type="button" onclick="toggleAllFieldCbs(true)" class="text-xs text-blue-500 hover:text-blue-700">Select All</button>
       <button type="button" onclick="toggleAllFieldCbs(false)" class="text-xs text-gray-400 hover:text-gray-600">Clear All</button>
     </div>
   </div>
@@ -129,16 +129,16 @@
       {% for d in loc.cope_diffs %}
       <label class="flex items-center gap-4 px-5 py-2.5 hover:bg-emerald-50/40 cursor-pointer transition-colors">
         <input type="checkbox" name="apply_cope_{{ loc.index }}" value="{{ d.field }}"
-               class="ai-cope-cb-{{ loc.index }} rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+               class="ai-cope-cb-{{ loc.index }} rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                {% if d.is_fill %}checked{% endif %}>
         <span class="text-xs font-medium text-gray-500 w-36 shrink-0">{{ d.label }}</span>
         <span class="text-xs text-gray-400 flex-1 truncate">
           {% if d.current is not none and d.current != '' %}{{ d.current }}{% else %}<em class="text-gray-300">empty</em>{% endif %}
         </span>
-        <svg class="w-4 h-4 text-teal-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-4 h-4 text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
         </svg>
-        <span class="text-xs font-medium text-teal-700 flex-1 truncate">{{ d.extracted }}</span>
+        <span class="text-xs font-medium text-blue-700 flex-1 truncate">{{ d.extracted }}</span>
       </label>
       {% endfor %}
     </div>
@@ -168,27 +168,27 @@
      SECTION C — Sub-Coverage Review
      ══════════════════════════════════════════════════════════════════════════ #}
   {% if ai_sub_coverage_data is defined and ai_sub_coverage_data %}
-  <div class="card border-violet-200 bg-violet-50/20 mb-4" id="ai-sub-coverages-card">
-    <div class="px-5 py-3 border-b border-violet-100 flex items-center justify-between">
+  <div class="card border-blue-200 bg-blue-50/20 mb-4" id="ai-sub-coverages-card">
+    <div class="px-5 py-3 border-b border-blue-100 flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <svg class="w-4 h-4 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
         </svg>
-        <span class="text-xs font-semibold text-violet-600 uppercase tracking-wide">Sub-Coverages</span>
+        <span class="text-xs font-semibold text-blue-600 uppercase tracking-wide">Sub-Coverages</span>
       </div>
       <span class="text-xs text-gray-400">{{ ai_sub_coverage_data | length }} found</span>
     </div>
 
     {% for sc in ai_sub_coverage_data %}
-    <div class="border-b border-violet-50 last:border-b-0" id="ai-sc-item-{{ sc.index }}"
+    <div class="border-b border-blue-50 last:border-b-0" id="ai-sc-item-{{ sc.index }}"
          {% if sc.existing_id %}data-existing-id="{{ sc.existing_id }}"{% endif %}>
       {# Sub-coverage header #}
-      <div class="px-5 py-2.5 flex items-center gap-3 bg-violet-50/30">
-        <input type="checkbox" class="ai-sc-select rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+      <div class="px-5 py-2.5 flex items-center gap-3 bg-blue-50/30">
+        <input type="checkbox" class="ai-sc-select rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                value="{{ sc.index }}" checked>
-        <span class="text-xs font-semibold text-violet-800">{{ sc.coverage_type }}</span>
+        <span class="text-xs font-semibold text-blue-800">{{ sc.coverage_type }}</span>
         {% if sc.match_type == 'matched' %}
-        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-700">
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">
           Update existing ({{ sc.match_score }}%)
         </span>
         {% else %}
@@ -198,20 +198,20 @@
 
       {# Per-field diffs #}
       {% if sc.diffs %}
-      <div class="divide-y divide-violet-50">
+      <div class="divide-y divide-blue-50">
         {% for d in sc.diffs %}
-        <label class="flex items-center gap-4 px-5 py-2 hover:bg-violet-50/40 cursor-pointer transition-colors">
+        <label class="flex items-center gap-4 px-5 py-2 hover:bg-blue-50/40 cursor-pointer transition-colors">
           <input type="checkbox" name="apply_sc_{{ sc.index }}" value="{{ d.field }}"
-                 class="ai-sc-field-cb-{{ sc.index }} rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                 class="ai-sc-field-cb-{{ sc.index }} rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                  {% if d.is_fill %}checked{% endif %}>
           <span class="text-xs font-medium text-gray-500 w-36 shrink-0">{{ d.label }}</span>
           <span class="text-xs text-gray-400 flex-1 truncate">
             {% if d.current is not none and d.current != '' %}{{ d.current }}{% else %}<em class="text-gray-300">empty</em>{% endif %}
           </span>
-          <svg class="w-4 h-4 text-violet-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg class="w-4 h-4 text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
           </svg>
-          <span class="text-xs font-medium text-violet-700 flex-1 truncate">{{ d.extracted }}</span>
+          <span class="text-xs font-medium text-blue-700 flex-1 truncate">{{ d.extracted }}</span>
         </label>
         {% endfor %}
       </div>
@@ -219,13 +219,13 @@
     </div>
     {% endfor %}
 
-    <div class="px-5 py-3 border-t border-violet-100 flex items-center gap-3">
+    <div class="px-5 py-3 border-t border-blue-100 flex items-center gap-3">
       <button type="button" onclick="applySubCoverages()"
-              class="px-4 py-1.5 rounded-lg text-xs font-medium bg-violet-600 text-white hover:bg-violet-700 transition-colors">
+              class="px-4 py-1.5 rounded-lg text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors">
         Apply Selected Sub-Coverages
       </button>
       <button type="button" onclick="document.querySelectorAll('.ai-sc-select').forEach(function(cb){cb.checked=true})"
-              class="text-xs text-violet-500 hover:text-violet-700">Select All</button>
+              class="text-xs text-blue-500 hover:text-blue-700">Select All</button>
       <button type="button" onclick="document.querySelectorAll('.ai-sc-select').forEach(function(cb){cb.checked=false})"
               class="text-xs text-gray-400 hover:text-gray-600">Clear All</button>
     </div>
@@ -236,16 +236,16 @@
      SECTION D — Exposure Review
      ══════════════════════════════════════════════════════════════════════════ #}
   {% if ai_exposure_data is defined and ai_exposure_data %}
-  <div class="card border-amber-200 bg-amber-50/20 mb-4" id="ai-exposures-card"
+  <div class="card border-blue-200 bg-blue-50/20 mb-4" id="ai-exposures-card"
        data-exposure-year="{{ ai_exposure_year or '' }}">
-    <div class="px-5 py-3 border-b border-amber-100 flex items-center justify-between">
+    <div class="px-5 py-3 border-b border-blue-100 flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m-6 4h6m-6 4h6M5 7h.01M5 11h.01M5 15h.01M4 19h16a1 1 0 001-1V6a1 1 0 00-1-1H4a1 1 0 00-1 1v12a1 1 0 001 1z"/>
         </svg>
-        <span class="text-xs font-semibold text-amber-700 uppercase tracking-wide">Exposures</span>
+        <span class="text-xs font-semibold text-blue-700 uppercase tracking-wide">Exposures</span>
         {% if ai_exposure_year %}
-        <span class="text-[10px] text-amber-500 font-medium">Year {{ ai_exposure_year }}</span>
+        <span class="text-[10px] text-blue-500 font-medium">Year {{ ai_exposure_year }}</span>
         {% endif %}
       </div>
       <span class="text-xs text-gray-400">{{ ai_exposure_data | length }} found</span>
@@ -254,7 +254,7 @@
     {% for exp in ai_exposure_data %}
     {% if not exp.valid %}
     {# Invalid entry — shown for transparency, can't be applied #}
-    <div class="border-b border-amber-50 last:border-b-0 px-5 py-2.5 flex items-center gap-3 bg-amber-50/10"
+    <div class="border-b border-blue-50 last:border-b-0 px-5 py-2.5 flex items-center gap-3 bg-blue-50/10"
          id="ai-exp-item-{{ exp.index }}">
       <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
@@ -265,7 +265,7 @@
       <span class="text-xs text-gray-400">Skipped — {{ exp.reason }}</span>
     </div>
     {% else %}
-    <div class="border-b border-amber-50 last:border-b-0" id="ai-exp-item-{{ exp.index }}"
+    <div class="border-b border-blue-50 last:border-b-0" id="ai-exp-item-{{ exp.index }}"
          data-exposure-type="{{ exp.exposure_type }}"
          data-amount="{{ exp.amount }}"
          data-denominator="{{ exp.denominator }}"
@@ -278,17 +278,17 @@
          data-loc-action="{{ exp.loc_action }}"
          data-matched-project-id="{{ exp.matched_project_id or '' }}">
       {# Exposure header row #}
-      <div class="px-5 py-2.5 flex items-center gap-3 bg-amber-50/30">
-        <input type="checkbox" class="ai-exp-select rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+      <div class="px-5 py-2.5 flex items-center gap-3 bg-blue-50/30">
+        <input type="checkbox" class="ai-exp-select rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                value="{{ exp.index }}" checked>
-        <span class="text-xs font-semibold text-amber-800">{{ exp.exposure_type }}</span>
+        <span class="text-xs font-semibold text-blue-800">{{ exp.exposure_type }}</span>
         <span class="text-xs text-gray-500">
           {{ '{:,.0f}'.format(exp.amount) }}
           {% if exp.unit %} {{ exp.unit }}{% endif %}
           {% if exp.denominator and exp.denominator != 1 %} / {{ exp.denominator }}{% endif %}
         </span>
         {% if exp.match_type == 'update' %}
-        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">
           Update existing
           {% if exp.existing and exp.existing.amount and exp.existing.amount != exp.amount %}
           ({{ '{:,.0f}'.format(exp.existing.amount) }} → {{ '{:,.0f}'.format(exp.amount) }})
@@ -297,9 +297,9 @@
         {% else %}
         <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">New</span>
         {% endif %}
-        <label class="ml-auto flex items-center gap-1 text-[10px] text-amber-700 font-medium cursor-pointer">
+        <label class="ml-auto flex items-center gap-1 text-[10px] text-blue-700 font-medium cursor-pointer">
           <input type="radio" name="ai-exp-primary" value="{{ exp.index }}"
-                 class="ai-exp-primary text-amber-600 focus:ring-amber-500"
+                 class="ai-exp-primary text-blue-600 focus:ring-blue-500"
                  {% if exp.is_primary_default %}checked{% endif %}>
           Primary
         </label>
@@ -307,8 +307,8 @@
 
       {# Location disclosure row #}
       {% if exp.loc_display %}
-      <div class="px-5 py-2 flex items-center gap-2 text-xs text-gray-500 border-t border-amber-50">
-        <svg class="w-3.5 h-3.5 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div class="px-5 py-2 flex items-center gap-2 text-xs text-gray-500 border-t border-blue-50">
+        <svg class="w-3.5 h-3.5 text-blue-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
         </svg>
@@ -318,7 +318,7 @@
         <span>Will create new location: <span class="font-medium text-gray-700">{{ exp.loc_display }}</span></span>
         {% endif %}
         {% if exp.would_stamp_policy_project %}
-        <span class="px-1.5 py-0.5 rounded-full bg-amber-100 text-[9px] text-amber-700 font-semibold">Sets policy location</span>
+        <span class="px-1.5 py-0.5 rounded-full bg-blue-100 text-[9px] text-blue-700 font-semibold">Sets policy location</span>
         {% endif %}
       </div>
       {% endif %}
@@ -326,13 +326,13 @@
     {% endif %}
     {% endfor %}
 
-    <div class="px-5 py-3 border-t border-amber-100 flex items-center gap-3">
+    <div class="px-5 py-3 border-t border-blue-100 flex items-center gap-3">
       <button type="button" onclick="applyExposures()"
-              class="px-4 py-1.5 rounded-lg text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 transition-colors">
+              class="px-4 py-1.5 rounded-lg text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors">
         Apply Selected Exposures
       </button>
       <button type="button" onclick="document.querySelectorAll('.ai-exp-select').forEach(function(cb){cb.checked=true})"
-              class="text-xs text-amber-500 hover:text-amber-700">Select All</button>
+              class="text-xs text-blue-500 hover:text-blue-700">Select All</button>
       <button type="button" onclick="document.querySelectorAll('.ai-exp-select').forEach(function(cb){cb.checked=false})"
               class="text-xs text-gray-400 hover:text-gray-600">Clear All</button>
     </div>
@@ -345,6 +345,46 @@
 /* ── AI Review Panel helpers ── */
 function toggleAllFieldCbs(checked) {
   document.querySelectorAll('.ai-field-cb').forEach(function(cb) { cb.checked = checked; });
+}
+
+function showAiReviewError(msg) {
+  var panel = document.getElementById('ai-review-panel');
+  if (!panel) return;
+  var banner = panel.querySelector('#ai-review-error');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'ai-review-error';
+    banner.className = 'mb-3 px-4 py-2 rounded-lg border border-red-200 bg-red-50 text-xs text-red-700 flex items-start gap-2';
+    panel.insertBefore(banner, panel.firstChild);
+  }
+  banner.innerHTML =
+    '<svg class="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
+    '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M4.93 19h14.14a2 2 0 001.74-3l-7.07-12a2 2 0 00-3.48 0l-7.07 12a2 2 0 001.74 3z"/></svg>' +
+    '<span>' + msg + '</span>' +
+    '<button type="button" aria-label="Dismiss" class="ml-auto text-red-400 hover:text-red-600" ' +
+    'onclick="this.parentElement.remove()">×</button>';
+}
+
+function _flashAiField(field, displayValue) {
+  /* Find the form control for `field` in the policy details tab and flash
+     its matching display cell so the user sees the change land. Looks for
+     either `[data-field="X"]` (contenteditable + toggle-switch inputs) or
+     `[name="X"]` (classic form inputs). */
+  var tab = document.getElementById('tab-details-content') || document;
+  var el = tab.querySelector('[data-field="' + field + '"]');
+  if (!el) {
+    el = tab.querySelector('[name="' + field + '"]');
+  }
+  if (!el) return;
+  /* Update the visible value so the user sees the new state without
+     reloading the page. Contenteditable nodes take textContent; form
+     inputs take .value. */
+  if (el.isContentEditable) {
+    el.textContent = displayValue;
+  } else if ('value' in el) {
+    el.value = displayValue;
+  }
+  if (typeof flashCell === 'function') flashCell(el);
 }
 
 function applyPolicyFields() {
@@ -361,10 +401,19 @@ function applyPolicyFields() {
   var promises = checked.map(function(field) {
     var value = parsed[field];
     if (value === null || value === undefined) value = '';
+    var sval = String(value);
     return fetch('/policies/' + uid + '/cell', {
       method: 'PATCH',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({field: field, value: String(value)})
+      body: JSON.stringify({field: field, value: sval})
+    }).then(function(resp) {
+      return resp.ok ? resp.json().then(function(data) {
+        /* Server may return a normalized `formatted` value (currency,
+           phone, date). Use it when present so what the user sees in
+           the form matches what was stored. */
+        var shown = (data && data.formatted !== undefined) ? data.formatted : sval;
+        _flashAiField(field, shown);
+      }) : null;
     });
   });
 
@@ -519,7 +568,7 @@ function applyExposures() {
 
   var year = parseInt(card.dataset.exposureYear || '', 10);
   if (!year) {
-    alert('Cannot apply exposures: no year resolved from policy effective date.');
+    showAiReviewError('Cannot apply exposures: no year resolved from policy effective date.');
     return;
   }
 
@@ -561,7 +610,7 @@ function applyExposures() {
     return resp.json();
   }).then(function(data) {
     if (!data.ok) {
-      alert('Failed to apply exposures: ' + (data.error || 'unknown error'));
+      showAiReviewError('Failed to apply exposures: ' + (data.error || 'unknown error'));
       return;
     }
     card.innerHTML = '<div class="px-5 py-4 text-sm text-emerald-600 font-medium flex items-center gap-2">' +
@@ -571,7 +620,7 @@ function applyExposures() {
       '</div>';
     card.className = 'card border-emerald-200 bg-emerald-50/20 mb-4';
   }).catch(function(err) {
-    alert('Failed to apply exposures: ' + err);
+    showAiReviewError('Failed to apply exposures: ' + err);
   });
 }
 </script>

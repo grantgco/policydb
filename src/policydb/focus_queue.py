@@ -217,11 +217,23 @@ def _normalize_suggested(item: dict, today: date) -> dict:
     # without this, every suggested item rendered the same generic
     # "needs follow-up scheduled" subject and the user had no way to tell
     # why a given policy got surfaced.
+    #
+    # Opportunities (is_opportunity=1) use a separate label set — a
+    # prospect sitting in "Not Started" is a sales-stage signal, not a
+    # renewal-servicing deficiency, and should read that way.
     _reason_code = item.get("suggestion_reason") or ""
+    is_opportunity = bool(item.get("is_opportunity"))
     if _reason_code == "not_started":
-        reason_line = "Renewal status: Not Started"
+        reason_line = (
+            "Opportunity — not yet worked"
+            if is_opportunity
+            else "Renewal status: Not Started"
+        )
     elif _reason_code == "expiring_soon":
-        reason_line = f"Expires in {days_to}d — no follow-up scheduled"
+        if is_opportunity:
+            reason_line = f"Opportunity target date in {days_to}d"
+        else:
+            reason_line = f"Expires in {days_to}d — no follow-up scheduled"
     elif _reason_code == "stale_no_activity":
         if days_since is not None:
             reason_line = f"No activity in {days_since}d"
@@ -230,11 +242,14 @@ def _normalize_suggested(item: dict, today: date) -> dict:
     else:
         reason_line = ""
 
+    subject_tail = (
+        "— needs attention" if is_opportunity else "— needs follow-up scheduled"
+    )
     return {
         "id": item.get("policy_uid"),  # Use policy_uid as ID
         "kind": "suggested",
         "source": "suggested",
-        "source_label": "Renewal",
+        "source_label": "Opportunity" if is_opportunity else "Renewal",
         "client_id": item.get("client_id"),
         "client_name": item.get("client_name", ""),
         "cn_number": item.get("cn_number", ""),
@@ -242,7 +257,8 @@ def _normalize_suggested(item: dict, today: date) -> dict:
         "policy_type": item.get("policy_type"),
         "carrier": item.get("carrier"),
         "renewal_status": item.get("renewal_status"),
-        "subject": f"{item.get('policy_type', '')} — needs follow-up scheduled",
+        "is_opportunity": is_opportunity,
+        "subject": f"{item.get('policy_type', '')} {subject_tail}",
         "follow_up_date": None,
         "expiration_date": exp_date,
         "deadline_date": exp_date,

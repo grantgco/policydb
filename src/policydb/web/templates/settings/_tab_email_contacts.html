@@ -59,6 +59,27 @@
         Run Discovery
       </button>
     </div>
+
+    <div class="flex items-center gap-2 text-xs py-1.5 px-2 bg-amber-50 border border-amber-200 rounded mb-2">
+      <span class="font-medium text-amber-800">Comprehensive crawl</span>
+      <span class="text-amber-700">—</span>
+      <span class="text-amber-700 flex-1">
+        When enabled, "Sync Outlook" scans every folder marked on below instead of the legacy Sent + PDB-categorized + Flagged trio. Leave off until you've run discovery and confirmed the folder list.
+      </span>
+      <label class="toggle-switch align-middle"
+             title="{% if outlook_use_comprehensive_crawl %}ON — comprehensive crawl active. Click to disable.{% else %}OFF — legacy sync. Click to enable comprehensive crawl.{% endif %}">
+        <input type="checkbox"
+               {% if outlook_use_comprehensive_crawl %}checked{% endif %}
+               hx-post="/settings/email-sync/toggle-comprehensive"
+               hx-vals='js:{enabled: event.target.checked ? 1 : 0}'
+               hx-target="closest label"
+               hx-swap="outerHTML"
+               hx-trigger="change"
+               aria-label="{% if outlook_use_comprehensive_crawl %}Disable comprehensive crawl{% else %}Enable comprehensive crawl{% endif %}">
+        <span class="toggle-track"></span>
+      </label>
+    </div>
+
     <div id="email-sync-spinner" class="htmx-indicator text-xs text-gray-500 italic py-1">
       Walking the Outlook folder tree…
     </div>

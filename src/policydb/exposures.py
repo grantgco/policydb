@@ -13,9 +13,13 @@ def _calc_rate(premium, amount, denominator):
     return premium / (amount / denominator)
 
 
-def create_exposure_link(conn, policy_uid, exposure_id, *, is_primary=False):
+def create_exposure_link(conn, policy_uid, exposure_id, *, is_primary=False, commit=True):
     """Create a link between a policy and an exposure row. Returns the link dict.
-    If the link already exists, updates is_primary and recalculates rate."""
+    If the link already exists, updates is_primary and recalculates rate.
+
+    ``commit=False`` defers the commit to the caller so a batch of link
+    creations can be made atomic (e.g., the AI exposure apply flow).
+    """
     if is_primary:
         # Clear any existing primary for this policy
         conn.execute(
@@ -47,7 +51,8 @@ def create_exposure_link(conn, policy_uid, exposure_id, *, is_primary=False):
                VALUES (?, ?, ?, ?, ?)""",
             (policy_uid, exposure_id, 1 if is_primary else 0, rate, now if rate is not None else None),
         )
-    conn.commit()
+    if commit:
+        conn.commit()
     row = conn.execute(
         "SELECT * FROM policy_exposure_links WHERE policy_uid=? AND exposure_id=?",
         (policy_uid, exposure_id),
@@ -127,8 +132,12 @@ def get_policy_exposures(conn, policy_uid):
     return [dict(r) for r in rows]
 
 
-def find_or_create_exposure(conn, *, client_id, project_id, exposure_type, year, amount, denominator=1):
-    """Find an existing client_exposures row or create one. Returns the exposure id."""
+def find_or_create_exposure(conn, *, client_id, project_id, exposure_type, year, amount, denominator=1, commit=True):
+    """Find an existing client_exposures row or create one. Returns the exposure id.
+
+    ``commit=False`` lets a caller batch multiple upserts into a single
+    atomic transaction.
+    """
     row = conn.execute(
         """SELECT id FROM client_exposures
            WHERE client_id=? AND COALESCE(project_id,0)=COALESCE(?,0)
@@ -142,5 +151,6 @@ def find_or_create_exposure(conn, *, client_id, project_id, exposure_type, year,
            VALUES (?, ?, ?, ?, ?, ?)""",
         (client_id, project_id, exposure_type, year, amount, denominator),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return conn.execute("SELECT last_insert_rowid()").fetchone()[0]

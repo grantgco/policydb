@@ -10,7 +10,8 @@
     name="content"
     rows="4"
     placeholder="Working notes for this policy — type here, then pin with Save Note…"
-    class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none placeholder-gray-300 leading-relaxed">{{ policy_scratchpad }}</textarea>
+    class="w-full text-sm text-gray-800 bg-transparent resize-none focus:outline-none placeholder-gray-300 leading-relaxed">
+{{ policy_scratchpad or '' }}</textarea>
   <div class="flex justify-end gap-1 mt-1">
     <button type="button" id="scratch-log-{{ policy.policy_uid }}"
       onclick="logScratchCombined('policy', '{{ policy.policy_uid }}')"

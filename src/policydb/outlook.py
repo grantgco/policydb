@@ -15,7 +15,38 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-_TIMEOUT = 30  # seconds per osascript call
+_TIMEOUT = 30  # default seconds per osascript call — overridable per call
+
+# Per-function timeouts. Folder crawls and discover runs materialize large
+# `whose` predicates that can take minutes on big archives; a flat 30s budget
+# is too tight and causes silent folder-level sync loss. Values here are
+# overridable via the `outlook_script_timeout_seconds` config key (see
+# `_resolve_timeout` below).
+_DEFAULT_TIMEOUTS = {
+    "availability": 5,
+    "create_draft": 30,
+    "search_emails": 30,
+    "search_all_folders": 120,
+    "search_folder_since": 120,
+    "get_flagged_emails": 120,
+    "discover_folders": 300,
+}
+
+
+def _resolve_timeout(op: str) -> int:
+    """Look up a per-op timeout; defer config import to avoid cycles."""
+    base = _DEFAULT_TIMEOUTS.get(op, _TIMEOUT)
+    try:
+        from policydb.config import load_config
+        cfg = load_config()
+        overrides = cfg.get("outlook_script_timeout_seconds", {}) or {}
+        if isinstance(overrides, dict):
+            val = overrides.get(op)
+            if val is not None:
+                return max(5, int(val))
+    except Exception:
+        pass  # never let config lookup block a sync
+    return base
 
 
 def is_outlook_available() -> bool:
@@ -32,12 +63,18 @@ def is_outlook_available() -> bool:
         return False
 
 
-def _run_applescript(script: str) -> dict:
-    """Execute an AppleScript and return parsed JSON output."""
+def _run_applescript(script: str, timeout: int | None = None) -> dict:
+    """Execute an AppleScript and return parsed JSON output.
+
+    ``timeout`` overrides the default osascript subprocess budget. Callers
+    that scan many messages (folder crawl, discover) should pass a longer
+    value so large `whose` predicates don't time out silently.
+    """
+    effective_timeout = timeout if timeout is not None else _TIMEOUT
     try:
         result = subprocess.run(
             ["osascript", "-e", script],
-            capture_output=True, text=True, timeout=_TIMEOUT,
+            capture_output=True, text=True, timeout=effective_timeout,
         )
         if result.returncode != 0:
             err = result.stderr.strip()
@@ -61,7 +98,7 @@ def _run_applescript(script: str) -> dict:
             return {"ok": True, "raw": stdout}
 
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "Outlook took too long to respond (30s timeout)"}
+        return {"ok": False, "error": f"Outlook took too long to respond ({effective_timeout}s timeout)"}
     except FileNotFoundError:
         return {"ok": False, "error": "osascript not found — are you on macOS?"}
     except Exception as e:
@@ -117,7 +154,7 @@ end tell
 return "{{\\"ok\\": true}}"
 '''
 
-    return _run_applescript(script)
+    return _run_applescript(script, timeout=_resolve_timeout("create_draft"))
 
 
 def search_all_folders(
@@ -250,7 +287,7 @@ on replaceText(txt, srch, repl)
 end replaceText
 '''
 
-    result = _run_applescript(script)
+    result = _run_applescript(script, timeout=_resolve_timeout("search_all_folders"))
     if not result.get("ok", True):
         return result
 
@@ -265,7 +302,15 @@ end replaceText
                 email["categories"] = [c.strip() for c in email["categories"].split(",") if c.strip()]
             else:
                 email["categories"] = []
-        return {"ok": True, "emails": emails}
+        # AppleScript caps the scan at 500 messages to keep the script
+        # responsive. Surface that to the caller so `sync_outlook` can
+        # warn the user instead of silently dropping the overflow — if
+        # hit, the lookback window should be shortened.
+        resp = {"ok": True, "emails": emails}
+        if len(emails) >= 500:
+            resp["truncated"] = True
+            resp["cap"] = 500
+        return resp
     except json.JSONDecodeError as e:
         logger.warning("Failed to parse all-folder results: %s", e)
         return {"ok": True, "emails": [], "parse_warning": str(e)}
@@ -391,7 +436,7 @@ on replaceText(txt, srch, repl)
 end replaceText
 '''
 
-    result = _run_applescript(script)
+    result = _run_applescript(script, timeout=_resolve_timeout("search_emails"))
     if not result.get("ok", True):
         return result
 
@@ -456,32 +501,47 @@ def discover_folders() -> dict:
     # for Mac's `class of` returns are inconsistent across account types
     # (Exchange vs IMAP). Name-based is pragmatic and the user can override
     # in the Settings UI anyway.
+    #
+    # Defensive try wraps at every level: a single bad folder (corrupt
+    # sync state, special folder type that doesn't respond to `name of`,
+    # access denied) is caught and skipped so the rest of the tree still
+    # gets discovered. Without these wraps one bad folder could kill the
+    # whole walk and we'd silently lose discovery for everything after it.
+    #
+    # Empty-account case returns a structured error JSON instead of "[]"
+    # so the UI can show a useful message (was: silent empty list).
     script = r'''
 set output to "[" & return
 tell application "Microsoft Outlook"
     try
         set level1 to mail folders of default account
-    on error
-        return "[]"
+    on error errMsg
+        return "{\"ok\": false, \"error\": \"Could not list folders from default account: " & my escJSON(errMsg) & "\"}"
     end try
     repeat with l1 in level1
-        set l1Name to name of l1
-        set output to output & my emitEntry(l1Name, l1Name) & "," & return
         try
-            set level2 to mail folders of l1
-            repeat with l2 in level2
-                set l2Name to name of l2
-                set l2Path to l1Name & "/" & l2Name
-                set output to output & my emitEntry(l2Path, l2Name) & "," & return
-                try
-                    set level3 to mail folders of l2
-                    repeat with l3 in level3
-                        set l3Name to name of l3
-                        set l3Path to l2Path & "/" & l3Name
-                        set output to output & my emitEntry(l3Path, l3Name) & "," & return
-                    end repeat
-                end try
-            end repeat
+            set l1Name to name of l1
+            set output to output & my emitEntry(l1Name, l1Name) & "," & return
+            try
+                set level2 to mail folders of l1
+                repeat with l2 in level2
+                    try
+                        set l2Name to name of l2
+                        set l2Path to l1Name & "/" & l2Name
+                        set output to output & my emitEntry(l2Path, l2Name) & "," & return
+                        try
+                            set level3 to mail folders of l2
+                            repeat with l3 in level3
+                                try
+                                    set l3Name to name of l3
+                                    set l3Path to l2Path & "/" & l3Name
+                                    set output to output & my emitEntry(l3Path, l3Name) & "," & return
+                                end try
+                            end repeat
+                        end try
+                    end try
+                end repeat
+            end try
         end try
     end repeat
 end tell
@@ -518,11 +578,23 @@ on replaceText(txt, srch, repl)
 end replaceText
 '''
 
-    result = _run_applescript(script)
+    result = _run_applescript(script, timeout=_resolve_timeout("discover_folders"))
     if not result.get("ok", True):
         return result
 
     raw = result.get("raw", "[]")
+    # Empty-account / list-failure case: AppleScript returns a structured
+    # error JSON object (Bug A fix). Detect and surface it before trying
+    # to parse the raw output as a folder array.
+    raw_stripped = raw.strip()
+    if raw_stripped.startswith("{"):
+        try:
+            err_obj = json.loads(raw_stripped)
+            if not err_obj.get("ok", True):
+                return err_obj
+        except json.JSONDecodeError:
+            pass
+
     try:
         # Strip trailing comma before closing bracket (AppleScript always emits one)
         raw = re.sub(r',\s*\]', ']', raw)
@@ -531,6 +603,221 @@ end replaceText
     except json.JSONDecodeError as e:
         logger.warning("Failed to parse folder discovery results: %s", e)
         return {"ok": False, "error": f"Could not parse folder list: {e}", "raw": raw[:500]}
+
+
+def search_folder_since(folder_path: str, since_date: datetime) -> dict:
+    """Path-aware folder search returning conversation_id + internet_message_id.
+
+    Phase 3D crawl entry point. Walks an arbitrarily nested folder path
+    (slash-delimited, e.g. ``Archive/2023/Acme``) and returns up to 500
+    messages with ``time sent >= since_date``. Same email shape as
+    :func:`search_emails` plus two new fields:
+
+      - ``conversation_id`` — Outlook's native thread key (string).
+        Falls back to ``""`` if the AppleScript dictionary doesn't expose
+        ``conversation id`` on this Outlook version.
+      - ``internet_message_id`` — RFC-822 Message-ID header.
+
+    **Known limitation (Bug E):** Microsoft Outlook for Mac's AppleScript
+    dictionary doesn't expose ``internet message id`` as a direct
+    property on the ``incoming message`` / ``outgoing message`` classes.
+    The RFC-822 Message-ID lives inside the ``headers`` string blob and
+    has to be parsed out. Until we add header parsing, the
+    ``internet_message_id`` field falls back to Outlook's internal
+    numeric ``id`` (same value as ``message_id``). This means the new
+    ``outlook_internet_message_id`` column is effectively redundant
+    with ``outlook_message_id`` for now — true cross-mailbox dedup
+    (e.g. detecting that an email re-imported after archive moves is
+    the same one) won't work until the headers-parsing fix lands.
+    Within-mailbox dedup still works fine via ``outlook_message_id``.
+
+    Path resolution walks ``mail folder "X" of Y`` segment by segment
+    starting at the default account. Any segment that doesn't resolve
+    raises an AppleScript error which is caught and returned as an
+    error dict so the caller can mark the folder bad and move on.
+
+    Args:
+        folder_path: Slash-delimited folder path. Single-segment paths
+            ("Inbox", "Sent Items") work the same as nested paths.
+        since_date: Only messages with ``time sent >= since_date`` are
+            returned. The crawler computes this from the folder row's
+            ``last_synced_at`` column or the first-run window.
+
+    Returns:
+        ``{"ok": True, "emails": [...]}`` on success or
+        ``{"ok": False, "error": "..."}`` on AppleScript / parse failure.
+    """
+    if not is_outlook_available():
+        return {"ok": False, "error": "Outlook is not running. Please open Legacy Outlook and try again."}
+
+    date_str = since_date.strftime("%m/%d/%Y")
+    esc_path = _escape_for_applescript(folder_path)
+
+    # Path-walking: split on "/" and traverse segments. We can't pre-quote
+    # each segment as AppleScript because the depth is dynamic, so build
+    # a handler that takes the path string and resolves it at runtime.
+    script = f'''
+set output to ""
+set myDate to date "{date_str}"
+tell application "Microsoft Outlook"
+    try
+        set targetFolder to my findFolder("{esc_path}")
+    on error errMsg
+        return "{{\\"ok\\": false, \\"error\\": \\"Folder not found: " & my escJSON(errMsg) & "\\"}}"
+    end try
+    try
+        set msgs to messages of targetFolder whose (time sent >= myDate)
+    on error errMsg
+        return "{{\\"ok\\": false, \\"error\\": \\"Query failed: " & my escJSON(errMsg) & "\\"}}"
+    end try
+    set msgCount to count of msgs
+    if msgCount > 500 then set msgCount to 500
+    set output to "[" & return
+    repeat with i from 1 to msgCount
+        set msg to item i of msgs
+        set msgSubject to subject of msg
+        set msgSender to ""
+        try
+            set msgSender to address of sender of msg
+        end try
+        set msgDate to time sent of msg
+        set msgId to id of msg as text
+        -- Conversation id: try to read native conversation id, fall back to ""
+        set convId to ""
+        try
+            set convId to conversation id of msg as text
+        end try
+        -- Internet message id: try the RFC-822 header, fall back to msgId.
+        -- Outlook for Mac exposes this as `internet message id` on newer
+        -- builds; older versions just expose `message id` (the Outlook
+        -- internal numeric id), so we use msgId as the safe anchor.
+        set internetMsgId to msgId
+        try
+            set internetMsgId to internet message id of msg as text
+        end try
+        set recipList to ""
+        try
+            repeat with r in to recipients of msg
+                set recipList to recipList & address of email address of r & ","
+            end repeat
+            repeat with r in cc recipients of msg
+                set recipList to recipList & address of email address of r & ","
+            end repeat
+        end try
+        set msgContent to ""
+        try
+            set msgContent to plain text content of msg
+            if length of msgContent > 100000 then
+                set msgContent to text 1 thru 100000 of msgContent
+            end if
+        on error
+            try
+                set msgContent to content of msg
+                if length of msgContent > 100000 then
+                    set msgContent to text 1 thru 100000 of msgContent
+                end if
+            end try
+        end try
+        set catList to ""
+        try
+            set cats to categories of msg
+            repeat with c in cats
+                set catList to catList & (name of c) & ","
+            end repeat
+        end try
+        set msgSubject to my escJSON(msgSubject)
+        set msgSender to my escJSON(msgSender)
+        set msgContent to my escJSON(msgContent)
+        set recipList to my escJSON(recipList)
+        set msgId to my escJSON(msgId)
+        set convId to my escJSON(convId)
+        set internetMsgId to my escJSON(internetMsgId)
+        set catList to my escJSON(catList)
+        set escFolder to my escJSON("{esc_path}")
+        set dateStr to (year of msgDate as text) & "-" & my padNum(month of msgDate as integer) & "-" & my padNum(day of msgDate) & "T" & my padNum(hours of msgDate) & ":" & my padNum(minutes of msgDate) & ":00"
+        set output to output & "  {{\\"message_id\\": \\"" & msgId & "\\", \\"conversation_id\\": \\"" & convId & "\\", \\"internet_message_id\\": \\"" & internetMsgId & "\\", \\"subject\\": \\"" & msgSubject & "\\", \\"sender\\": \\"" & msgSender & "\\", \\"recipients\\": \\"" & recipList & "\\", \\"date\\": \\"" & dateStr & "\\", \\"body_snippet\\": \\"" & msgContent & "\\", \\"folder\\": \\"" & escFolder & "\\", \\"categories\\": \\"" & catList & "\\"}},"
+        if i < msgCount then set output to output & return
+    end repeat
+    set output to output & return & "]"
+end tell
+return output
+
+on findFolder(pathStr)
+    set AppleScript's text item delimiters to "/"
+    set segs to text items of pathStr
+    set AppleScript's text item delimiters to ""
+    tell application "Microsoft Outlook"
+        set f to default account
+        repeat with seg in segs
+            set f to mail folder (seg as text) of f
+        end repeat
+    end tell
+    return f
+end findFolder
+
+on escJSON(txt)
+    set txt to my replaceText(txt, "\\\\", "\\\\\\\\")
+    set txt to my replaceText(txt, "\\"", "\\\\\\"")
+    set txt to my replaceText(txt, return, "\\\\n")
+    set txt to my replaceText(txt, linefeed, "\\\\n")
+    set txt to my replaceText(txt, tab, "\\\\t")
+    return txt
+end escJSON
+
+on padNum(n)
+    if n < 10 then return "0" & (n as text)
+    return n as text
+end padNum
+
+on replaceText(txt, srch, repl)
+    set AppleScript's text item delimiters to srch
+    set parts to text items of txt
+    set AppleScript's text item delimiters to repl
+    set txt to parts as text
+    set AppleScript's text item delimiters to ""
+    return txt
+end replaceText
+'''
+
+    result = _run_applescript(script, timeout=_resolve_timeout("search_folder_since"))
+    if not result.get("ok", True):
+        return result
+
+    raw = result.get("raw", "[]")
+    # The script may return an error JSON object instead of an array when
+    # the folder lookup fails; handle that case before trying to parse as list.
+    raw_stripped = raw.strip()
+    if raw_stripped.startswith("{"):
+        try:
+            err_obj = json.loads(raw_stripped)
+            if not err_obj.get("ok", True):
+                return err_obj
+        except json.JSONDecodeError:
+            pass
+
+    try:
+        raw = re.sub(r',\s*\]', ']', raw)
+        emails = json.loads(raw)
+        for email in emails:
+            if isinstance(email.get("recipients"), str):
+                email["recipients"] = [
+                    r.strip() for r in email["recipients"].split(",")
+                    if r.strip()
+                ]
+            if isinstance(email.get("categories"), str):
+                email["categories"] = [
+                    c.strip() for c in email["categories"].split(",")
+                    if c.strip()
+                ]
+            else:
+                email["categories"] = []
+            # Ensure both new fields are always present (empty string if AppleScript omitted)
+            email.setdefault("conversation_id", "")
+            email.setdefault("internet_message_id", email.get("message_id", ""))
+        return {"ok": True, "emails": emails, "folder": folder_path}
+    except json.JSONDecodeError as e:
+        logger.warning("Failed to parse folder %s results: %s", folder_path, e)
+        return {"ok": False, "error": f"Parse failed for {folder_path}: {e}", "raw": raw[:500]}
 
 
 def get_flagged_emails(since_date: datetime) -> dict:
@@ -623,7 +910,7 @@ on replaceText(txt, srch, repl)
 end replaceText
 '''
 
-    result = _run_applescript(script)
+    result = _run_applescript(script, timeout=_resolve_timeout("get_flagged_emails"))
     if not result.get("ok", True):
         return result
 
@@ -635,7 +922,13 @@ end replaceText
         for email in emails:
             if not email.get("flag_due_date"):
                 email["flag_due_date"] = None
-        return {"ok": True, "emails": emails}
+        # Cap is 200 for flagged scans. Surface truncation so callers
+        # can warn the user before silently dropping flagged items.
+        resp = {"ok": True, "emails": emails}
+        if len(emails) >= 200:
+            resp["truncated"] = True
+            resp["cap"] = 200
+        return resp
     except json.JSONDecodeError as e:
         logger.warning("Failed to parse flagged email results: %s", e)
         return {"ok": True, "emails": [], "parse_warning": str(e)}

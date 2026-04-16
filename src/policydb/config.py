@@ -871,14 +871,38 @@ _DEFAULTS: dict[str, Any] = {
     # is case-sensitive on the *leaf* name (the last path segment), so
     # excluding "Archive" skips any folder whose leaf is "Archive"
     # regardless of where it lives in the tree.
+    #
+    # Default exclusions cover three categories:
+    #   - System folders that contain no actionable correspondence
+    #     (Deleted Items, Trash, Junk Email, Drafts, Outbox, etc.)
+    #   - Outlook for Mac native chrome (Conversation History from
+    #     Teams/Skype, Scheduled outbound queue, Other Users for
+    #     shared mailboxes — opt-in if you want shared inbox crawl)
+    #   - SaneBox auto-filing buckets (@SaneBlackHole through
+    #     @SaneTomorrow). These contain real emails Sanebox triaged
+    #     out of Inbox; users with active Sanebox workflows can
+    #     re-enable individual buckets via the per-folder toggle.
     "outlook_excluded_folders": [
+        # System folders
         "Deleted Items",
+        "Trash",
         "Junk Email",
         "Drafts",
         "Outbox",
         "RSS Feeds",
         "Sync Issues",
         "Clutter",
+        # Outlook for Mac chrome
+        "Conversation History",
+        "Scheduled",
+        "Other Users",
+        # SaneBox auto-filing (re-enable specific buckets via UI if you use them)
+        "@SaneBlackHole",
+        "@SaneLater",
+        "@SaneNews",
+        "@SaneNextWeek",
+        "@SaneThings",
+        "@SaneTomorrow",
     ],
     # First-run crawl horizon for Phase 3: how many days of history to
     # pull on the very first sync after folder discovery. Subsequent
@@ -886,6 +910,26 @@ _DEFAULTS: dict[str, Any] = {
     # aren't affected by this number. 14 days is the recommended anchor —
     # smaller = faster first run, larger = more historical catch-up.
     "outlook_first_run_days": 14,
+    # Master switch for the Phase 3D comprehensive crawl. False = legacy
+    # sync_outlook() runs (Sent Items + PDB-categorized + Flagged).
+    # True  = crawl_folders() runs (every folder where include_in_crawl=1
+    # in outlook_folder_sync, with per-folder last_synced_at). Flip via
+    # the toggle on the Email Sync Folders settings card after running
+    # discovery and confirming the folder list looks right.
+    "outlook_use_comprehensive_crawl": False,
+    # Per-operation osascript subprocess timeouts (seconds). Folder crawls
+    # and discover runs build large `whose` predicates against Outlook and
+    # can genuinely take minutes on deep archives; a flat 30s ceiling causes
+    # silent per-folder sync loss. Override individual keys in config.yaml
+    # only when the defaults here are genuinely insufficient.
+    "outlook_script_timeout_seconds": {
+        "create_draft": 30,
+        "search_emails": 30,
+        "search_all_folders": 120,
+        "search_folder_since": 120,
+        "get_flagged_emails": 120,
+        "discover_folders": 300,
+    },
     "freemail_domains": [
         "gmail.com", "outlook.com", "yahoo.com", "hotmail.com",
         "aol.com", "icloud.com", "live.com", "msn.com", "me.com",

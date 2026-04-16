@@ -260,6 +260,7 @@ def _build_tab_context(tab: str, conn) -> dict:
             # Table may not exist yet on very old installs; degrade gracefully.
             ctx["outlook_folders"] = []
         ctx["outlook_first_run_days"] = cfg.get("outlook_first_run_days", 14)
+        ctx["outlook_use_comprehensive_crawl"] = cfg.get("outlook_use_comprehensive_crawl", False)
 
     elif tab == "data-health":
         ctx["data_health_threshold"] = cfg.get("data_health_threshold", 85)
@@ -526,6 +527,44 @@ def email_sync_folder_toggle(
     )
     conn.commit()
     return _render_folder_rows(request, conn)
+
+
+@router.post("/email-sync/toggle-comprehensive", response_class=HTMLResponse)
+def email_sync_toggle_comprehensive(enabled: int = Form(0)):
+    """Flip the outlook_use_comprehensive_crawl master switch.
+
+    When True, the /outlook/sync route runs crawl_folders() against
+    every folder where include_in_crawl=1. When False (default), the
+    legacy sync_outlook() runs the hardcoded Sent + PDB-categorized +
+    Flagged trio. Returns the toggle-switch HTML so the UI can swap
+    in place with no full-card re-render.
+    """
+    new_val = bool(enabled)
+    full = dict(cfg.load_config())
+    full["outlook_use_comprehensive_crawl"] = new_val
+    cfg.save_config(full)
+    cfg.reload_config()
+    checked = "checked" if new_val else ""
+    aria = (
+        "Disable comprehensive crawl"
+        if new_val
+        else "Enable comprehensive crawl"
+    )
+    title = (
+        "ON — comprehensive crawl active. Click to disable."
+        if new_val
+        else "OFF — legacy sync. Click to enable comprehensive crawl."
+    )
+    return HTMLResponse(
+        f'<label class="toggle-switch align-middle" title="{title}">'
+        f'<input type="checkbox" {checked} '
+        f'hx-post="/settings/email-sync/toggle-comprehensive" '
+        f'hx-vals=\'js:{{enabled: event.target.checked ? 1 : 0}}\' '
+        f'hx-target="closest label" hx-swap="outerHTML" '
+        f'hx-trigger="change" aria-label="{aria}">'
+        f'<span class="toggle-track"></span>'
+        f'</label>'
+    )
 
 
 def _sync_readiness_on_add(key: str, item: str) -> None:

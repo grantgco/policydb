@@ -6,11 +6,11 @@
      ai_source_diffs     — list of {field, label, current, extracted, is_fill}
      ai_requirement_data — list of {index, extracted, match_type, match_score, existing, existing_id, diffs}
      ai_cope_diffs       — list of {field, label, current, extracted, is_fill}
-     ai_parsed_json      — JSON string of all parsed data
+     ai_parsed           — dict of all parsed data, serialized via `| tojson`
      is_new_source       — bool: creating new source vs updating existing
      existing_source_name — name of existing source (or None)
 #}
-<div id="ai-review-panel" class="mb-6" data-parsed='{{ ai_parsed_json }}'
+<div id="ai-review-panel" class="mb-6" data-parsed='{{ ai_parsed | tojson }}'
      data-client-id="{{ client_id }}"
      data-source-id="{{ source_id or '' }}"
      data-project-id="{{ project_id or '' }}">
