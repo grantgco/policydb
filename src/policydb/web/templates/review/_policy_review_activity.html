@@ -5,14 +5,22 @@
 
 {# Recent activity list #}
 {% if activities %}
-<div class="space-y-1 mb-3">
+<div class="space-y-2 mb-3">
   {% for a in activities %}
-  <div class="flex items-center gap-2 text-xs py-1 {% if not loop.last %}border-b border-gray-50{% endif %}">
-    <span class="text-gray-400 w-16 shrink-0 tabular-nums">{{ a.activity_date }}</span>
-    <span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 text-[10px] shrink-0">{{ a.activity_type }}</span>
-    <span class="text-gray-700 truncate flex-1">{{ a.subject }}</span>
-    {% if a.duration_hours %}
-    <span class="text-gray-400 shrink-0 tabular-nums">{{ a.duration_hours | format_hours }}</span>
+  <div class="text-xs py-1.5 {% if not loop.last %}border-b border-gray-50{% endif %}">
+    <div class="flex items-center gap-2">
+      <span class="text-gray-400 w-16 shrink-0 tabular-nums">{{ a.activity_date }}</span>
+      <span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 text-[10px] shrink-0">{{ a.activity_type }}</span>
+      <span class="text-gray-700 truncate flex-1 font-medium">{{ a.subject }}</span>
+      {% if a.duration_hours %}
+      <span class="text-gray-400 shrink-0 tabular-nums">{{ a.duration_hours | format_hours }}</span>
+      {% endif %}
+    </div>
+    {% if a.details %}
+    <div class="mt-0.5 ml-[72px] text-gray-400 leading-relaxed line-clamp-2">{{ a.details }}</div>
+    {% endif %}
+    {% if a.contact_name %}
+    <div class="mt-0.5 ml-[72px] text-gray-400 italic">{{ a.contact_name }}</div>
     {% endif %}
   </div>
   {% endfor %}
@@ -53,8 +61,6 @@
     </div>
     {% endif %}
     <div class="flex items-center gap-2">
-      <input type="date" name="follow_up_date" class="text-xs border border-gray-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh"
-             placeholder="Follow-up">
       <input type="text" name="duration_hours" placeholder="Hours" inputmode="decimal"
              class="w-16 text-xs border border-gray-200 rounded px-2 py-1.5 focus:ring-1 focus:ring-marsh text-right">
       <button type="submit" class="text-xs bg-marsh text-white px-3 py-1.5 rounded hover:bg-marsh-light transition-colors ml-auto">Log</button>

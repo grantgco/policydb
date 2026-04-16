@@ -1,0 +1,188 @@
+{# Issue Review Slideover — full context for reviewing an open issue.
+   Context: issue, related_activity, sibling_issues, issue_statuses, today
+#}
+
+{# ── Backdrop ── #}
+<div id="review-slideover-backdrop"
+     class="fixed inset-0 bg-black/30 z-40"
+     onclick="closeReviewSlideover()"></div>
+
+{# ── Panel ── #}
+<div id="review-slideover-panel"
+     class="fixed top-0 right-0 bottom-0 w-[560px] max-sm:w-full bg-white shadow-xl z-50 flex flex-col review-slideover-enter">
+
+  {# ── Header ── #}
+  <div class="shrink-0 border-b bg-white">
+    <div class="flex items-center justify-between px-5 pt-4 pb-3">
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-2 flex-wrap">
+          {% if issue.issue_severity %}
+          <span class="shrink-0 text-xs px-2 py-0.5 rounded-full font-semibold
+            {% if issue.issue_severity == 'Critical' %}bg-red-100 text-red-700
+            {% elif issue.issue_severity == 'High' %}bg-orange-100 text-orange-700
+            {% else %}bg-yellow-100 text-yellow-700{% endif %}">
+            {{ issue.issue_severity }}
+          </span>
+          {% endif %}
+          <a href="/clients/{{ issue.client_id }}" class="text-sm font-semibold text-marsh hover:underline truncate">{{ issue.client_name or 'Unknown' }}</a>
+          {% if issue.policy_uid %}
+          <span class="text-gray-300">&middot;</span>
+          <a href="/policies/{{ issue.policy_uid }}" class="text-xs font-mono text-gray-400 hover:text-marsh hover:underline">{{ issue.policy_uid }}</a>
+          {% endif %}
+        </div>
+        <div class="mt-1 text-sm font-semibold text-gray-900">{{ issue.subject }}</div>
+        <div class="flex items-center gap-2 mt-0.5 text-xs text-gray-500 flex-wrap">
+          {% if issue.issue_uid %}
+          <span class="font-mono text-gray-400">{{ issue.issue_uid }}</span>
+          {% endif %}
+          <span>Open {{ issue.days_open }}d</span>
+          {% if issue.due_date %}
+          <span class="text-gray-400">&middot;</span>
+          <span class="{% if issue.due_date < today %}text-red-500{% else %}text-gray-500{% endif %}">
+            Due {{ issue.due_date }}
+          </span>
+          {% endif %}
+          {% if issue.is_renewal_issue %}
+          <span class="text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded font-medium">Renewal Issue</span>
+          {% endif %}
+        </div>
+      </div>
+      <button onclick="closeReviewSlideover()"
+              class="text-gray-400 hover:text-gray-600 transition-colors p-1 shrink-0 ml-3"
+              aria-label="Close panel">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  {# ── Scrollable Content ── #}
+  <div class="flex-1 overflow-y-auto">
+
+    {# ── Issue Details ── #}
+    {% if issue.details %}
+    <div class="px-5 py-4 border-b border-gray-100">
+      <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Details</h3>
+      <p class="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{{ issue.details }}</p>
+    </div>
+    {% endif %}
+
+    {# ── Related Policy Context ── #}
+    {% if issue.policy_uid %}
+    <div class="px-5 py-4 border-b border-gray-100">
+      <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Policy</h3>
+      <div class="grid grid-cols-3 gap-3 text-center">
+        <div>
+          <div class="text-[10px] text-gray-400 uppercase">Type</div>
+          <div class="text-xs font-medium text-gray-700">{{ issue.policy_type or '—' }}</div>
+        </div>
+        <div>
+          <div class="text-[10px] text-gray-400 uppercase">Carrier</div>
+          <div class="text-xs font-medium text-gray-700">{{ issue.carrier or '—' }}</div>
+        </div>
+        <div>
+          <div class="text-[10px] text-gray-400 uppercase">Expiration</div>
+          <div class="text-xs font-medium {% if issue.days_to_renewal is not none and issue.days_to_renewal <= 90 %}text-red-600{% else %}text-gray-700{% endif %}">
+            {{ issue.expiration_date or '—' }}
+            {% if issue.days_to_renewal is not none %}
+            <span class="text-gray-400">({{ issue.days_to_renewal }}d)</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% if issue.renewal_status %}
+      <div class="mt-2 text-xs text-gray-500">Status: <span class="font-medium text-gray-700">{{ issue.renewal_status }}</span></div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {# ── Other Open Issues on Same Policy ── #}
+    {% if sibling_issues %}
+    <div class="px-5 py-4 border-b border-gray-100">
+      <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Other Open Issues on This Policy</h3>
+      <div class="space-y-1.5">
+        {% for sib in sibling_issues %}
+        <div class="flex items-center gap-2 text-xs">
+          <span class="shrink-0 px-1.5 py-0.5 rounded-full font-medium
+            {% if sib.issue_severity == 'Critical' %}bg-red-100 text-red-700
+            {% elif sib.issue_severity == 'High' %}bg-orange-100 text-orange-700
+            {% else %}bg-yellow-100 text-yellow-700{% endif %}">
+            {{ sib.issue_severity or 'Normal' }}
+          </span>
+          <button type="button"
+                  hx-get="/review/issues/{{ sib.id }}/slideover"
+                  hx-target="#review-slideover-container" hx-swap="innerHTML"
+                  class="text-marsh hover:underline truncate text-left">{{ sib.subject }}</button>
+          <span class="text-gray-400 shrink-0">{{ sib.days_open }}d</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# ── Recent Activity on Related Policy ── #}
+    {% if related_activity %}
+    <div class="px-5 py-4 border-b border-gray-100">
+      <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recent Policy Activity</h3>
+      <div class="space-y-2">
+        {% for a in related_activity %}
+        <div class="text-xs py-1 {% if not loop.last %}border-b border-gray-50{% endif %}">
+          <div class="flex items-center gap-2">
+            <span class="text-gray-400 w-16 shrink-0 tabular-nums">{{ a.activity_date }}</span>
+            <span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 text-[10px] shrink-0">{{ a.activity_type }}</span>
+            <span class="text-gray-700 truncate flex-1 font-medium">{{ a.subject }}</span>
+          </div>
+          {% if a.details %}
+          <div class="mt-0.5 ml-[72px] text-gray-400 line-clamp-2">{{ a.details }}</div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# ── Change Status ── #}
+    <div class="px-5 py-4">
+      <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Update Status</h3>
+      <div class="flex flex-wrap gap-2">
+        {% for s in issue_statuses %}
+        <button type="button"
+                hx-post="/review/issues/{{ issue.id }}/status"
+                hx-vals='{"status": "{{ s }}"}'
+                hx-target="#review-slideover-container"
+                hx-swap="innerHTML"
+                class="text-xs px-3 py-1.5 rounded-full border transition-colors
+                  {% if issue.issue_status == s %}
+                    bg-marsh text-white border-marsh
+                  {% else %}
+                    bg-white text-gray-600 border-gray-200 hover:border-marsh hover:text-marsh
+                  {% endif %}">
+          {{ s }}
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+
+  {# ── Footer ── #}
+  <div id="review-slideover-footer" class="shrink-0 border-t bg-white px-5 py-3">
+    <div class="flex items-center justify-between">
+      <div class="text-xs text-gray-400">{{ issue.issue_status }}</div>
+      <div class="flex items-center gap-3">
+        {% if issue.policy_uid %}
+        <a href="/policies/{{ issue.policy_uid }}/edit" class="text-xs text-gray-400 hover:underline">View Policy</a>
+        {% endif %}
+        <button type="button"
+                hx-post="/review/issues/{{ issue.id }}/status"
+                hx-vals='{"status": "Resolved"}'
+                hx-target="#review-slideover-container"
+                hx-swap="innerHTML"
+                class="text-sm bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors font-medium">
+          Mark Resolved
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

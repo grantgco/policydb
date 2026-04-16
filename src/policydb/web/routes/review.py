@@ -41,6 +41,7 @@ router = APIRouter(prefix="/review")
 
 _REVIEW_ROW_SQL = """
     SELECT p.*, c.name AS client_name, c.id AS client_id,
+           pg.name AS program_name, pg.program_uid AS parent_program_uid,
            CASE WHEN p.is_opportunity = 1 THEN NULL
                 ELSE CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER)
            END AS days_to_renewal,
@@ -54,7 +55,9 @@ _REVIEW_ROW_SQL = """
            CASE WHEN p.last_reviewed_at IS NULL THEN 9999
                 ELSE CAST(julianday('now') - julianday(p.last_reviewed_at) AS INTEGER)
            END AS days_since_review
-    FROM policies p JOIN clients c ON c.id = p.client_id
+    FROM policies p
+    JOIN clients c ON c.id = p.client_id
+    LEFT JOIN programs pg ON pg.id = p.program_id
     WHERE p.policy_uid = ?
 """
 
@@ -144,24 +147,11 @@ def _get_policy_review_context(conn, uid: str) -> dict | None:
     from policydb.anomaly_engine import get_review_gate_status
     gate = get_review_gate_status(conn, "policy", policy_id)
 
-    # Follow-up info
-    active_fu = None
-    if policy_id:
-        fu_row = conn.execute("""
-            SELECT follow_up_date, subject, activity_type
-            FROM activity_log
-            WHERE policy_id = ? AND follow_up_done = 0 AND follow_up_date IS NOT NULL
-            ORDER BY follow_up_date ASC LIMIT 1
-        """, (policy_id,)).fetchone()
-        if fu_row:
-            active_fu = dict(fu_row)
-
     return {
         "p": row,
         "policy_contacts": policy_contacts,
         "primary_client_contact": primary_client_contact,
         "gate": gate,
-        "active_followup": active_fu,
     }
 
 
@@ -1081,6 +1071,204 @@ def accept_profile(
         "review/_policy_row.html",
         _policy_row_context(request, r, suggestions=suggestions),
     )
+
+
+# ── Program Review Slideover ─────────────────────────────────────────────────
+
+@router.get("/programs/{program_uid}/slideover", response_class=HTMLResponse)
+def program_slideover(request: Request, program_uid: str, conn=Depends(get_db)):
+    """Return the program review slideover — shows all child policies."""
+    prog = conn.execute(
+        """SELECT pr.*, c.name AS client_name, c.id AS client_id
+           FROM programs pr
+           JOIN clients c ON c.id = pr.client_id
+           WHERE pr.program_uid = ?""",
+        (program_uid,),
+    ).fetchone()
+    if not prog:
+        return HTMLResponse("")
+    prog = dict(prog)
+
+    # Child policies with key renewal info
+    child_policies = [dict(r) for r in conn.execute(
+        """SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.expiration_date,
+                  p.renewal_status, p.premium, p.limit_amount,
+                  CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal,
+                  CASE WHEN julianday(p.expiration_date) - julianday('now') <= 0 THEN 'EXPIRED'
+                       WHEN julianday(p.expiration_date) - julianday('now') <= 90 THEN 'URGENT'
+                       WHEN julianday(p.expiration_date) - julianday('now') <= 120 THEN 'WARNING'
+                       WHEN julianday(p.expiration_date) - julianday('now') <= 180 THEN 'UPCOMING'
+                       ELSE 'OK'
+                  END AS urgency
+           FROM policies p
+           WHERE p.program_id = ? AND p.archived = 0
+           ORDER BY p.expiration_date ASC""",
+        (prog["id"],),
+    ).fetchall()]
+
+    # Recent activity across all child policies
+    policy_ids = [p["id"] for p in child_policies]
+    recent_activity: list[dict] = []
+    if policy_ids:
+        placeholders = ",".join("?" * len(policy_ids))
+        recent_activity = [dict(r) for r in conn.execute(
+            f"""SELECT a.id, a.activity_date, a.activity_type, a.subject, a.details,
+                       a.duration_hours, p.policy_uid, p.policy_type
+                FROM activity_log a
+                JOIN policies p ON a.policy_id = p.id
+                WHERE a.policy_id IN ({placeholders}) AND a.item_kind != 'issue'
+                ORDER BY a.activity_date DESC, a.id DESC
+                LIMIT 8""",
+            policy_ids,
+        ).fetchall()]
+
+    # Open issues across all child policies
+    open_issues: list[dict] = []
+    if policy_ids:
+        placeholders = ",".join("?" * len(policy_ids))
+        open_issues = [dict(r) for r in conn.execute(
+            f"""SELECT a.id, a.issue_uid, a.subject, a.issue_severity, a.issue_status,
+                       CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open,
+                       p.policy_uid, p.policy_type
+                FROM activity_log a
+                JOIN policies p ON a.policy_id = p.id
+                WHERE a.policy_id IN ({placeholders}) AND a.item_kind = 'issue'
+                  AND a.issue_status NOT IN ('Resolved', 'Closed')
+                ORDER BY CASE a.issue_severity WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 ELSE 3 END""",
+            policy_ids,
+        ).fetchall()]
+
+    return templates.TemplateResponse("review/_program_review_slideover.html", {
+        "request": request,
+        "prog": prog,
+        "child_policies": child_policies,
+        "recent_activity": recent_activity,
+        "open_issues": open_issues,
+        "renewal_statuses": cfg.get("renewal_statuses", []),
+        "today": date.today().isoformat(),
+    })
+
+
+@router.post("/programs/{program_uid}/slideover/reviewed", response_class=HTMLResponse)
+def program_slideover_mark_reviewed(
+    request: Request,
+    program_uid: str,
+    conn=Depends(get_db),
+):
+    """Mark the program + all child policies reviewed."""
+    prog = conn.execute(
+        "SELECT id FROM programs WHERE program_uid = ?", (program_uid,)
+    ).fetchone()
+    if not prog:
+        return HTMLResponse("")
+
+    conn.execute(
+        "UPDATE programs SET last_reviewed_at = CURRENT_TIMESTAMP WHERE program_uid = ?",
+        (program_uid,),
+    )
+    conn.execute(
+        "UPDATE policies SET last_reviewed_at = CURRENT_TIMESTAMP WHERE program_id = ?",
+        (prog["id"],),
+    )
+    conn.commit()
+
+    import json as _json
+    footer_html = """
+    <div id="review-slideover-footer" hx-swap-oob="innerHTML:#review-slideover-footer">
+      <div class="flex items-center justify-center gap-2 text-green-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </svg>
+        <span class="font-semibold text-sm">Program Reviewed — all policies updated</span>
+      </div>
+    </div>
+    """
+
+    resp = HTMLResponse(footer_html)
+    resp.headers["HX-Trigger"] = _json.dumps({
+        "refreshReviewStats": True,
+        "reviewRowCleared": f"#review-walkthrough-program-{program_uid}",
+    })
+    return resp
+
+
+# ── Issue Review Slideover ───────────────────────────────────────────────────
+
+@router.get("/issues/{issue_id}/slideover", response_class=HTMLResponse)
+def issue_slideover(request: Request, issue_id: int, conn=Depends(get_db)):
+    """Return the issue review slideover — full context for reviewing an open issue."""
+    issue = conn.execute(
+        """SELECT a.*, c.name AS client_name, c.id AS client_id,
+                  p.policy_uid, p.policy_type, p.carrier, p.expiration_date,
+                  p.renewal_status, p.premium,
+                  CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open,
+                  CAST(julianday(p.expiration_date) - julianday('now') AS INTEGER) AS days_to_renewal
+           FROM activity_log a
+           LEFT JOIN clients c ON a.client_id = c.id
+           LEFT JOIN policies p ON a.policy_id = p.id
+           WHERE a.id = ? AND a.item_kind = 'issue'""",
+        (issue_id,),
+    ).fetchone()
+    if not issue:
+        return HTMLResponse("")
+    issue = dict(issue)
+
+    # Recent activity on the same policy (for context)
+    related_activity: list[dict] = []
+    if issue.get("policy_id"):
+        related_activity = [dict(r) for r in conn.execute(
+            """SELECT a.id, a.activity_date, a.activity_type, a.subject, a.details
+               FROM activity_log a
+               WHERE a.policy_id = ? AND a.item_kind != 'issue' AND a.id != ?
+               ORDER BY a.activity_date DESC, a.id DESC
+               LIMIT 5""",
+            (issue["policy_id"], issue_id),
+        ).fetchall()]
+
+    # Other open issues on the same policy
+    sibling_issues: list[dict] = []
+    if issue.get("policy_id"):
+        sibling_issues = [dict(r) for r in conn.execute(
+            """SELECT a.id, a.subject, a.issue_severity, a.issue_status,
+                      CAST(julianday('now') - julianday(a.activity_date) AS INTEGER) AS days_open
+               FROM activity_log a
+               WHERE a.policy_id = ? AND a.item_kind = 'issue'
+                 AND a.issue_status NOT IN ('Resolved', 'Closed') AND a.id != ?
+               ORDER BY CASE a.issue_severity WHEN 'Critical' THEN 1 WHEN 'High' THEN 2 ELSE 3 END""",
+            (issue["policy_id"], issue_id),
+        ).fetchall()]
+
+    issue_statuses = cfg.get("issue_statuses", ["Open", "In Progress", "Pending", "Resolved", "Closed"])
+
+    return templates.TemplateResponse("review/_issue_review_slideover.html", {
+        "request": request,
+        "issue": issue,
+        "related_activity": related_activity,
+        "sibling_issues": sibling_issues,
+        "issue_statuses": issue_statuses,
+        "today": date.today().isoformat(),
+    })
+
+
+@router.post("/issues/{issue_id}/status", response_class=HTMLResponse)
+def issue_update_status(
+    request: Request,
+    issue_id: int,
+    status: str = Form(...),
+    conn=Depends(get_db),
+):
+    """Update issue status from the review slideover."""
+    conn.execute(
+        "UPDATE activity_log SET issue_status = ? WHERE id = ? AND item_kind = 'issue'",
+        (status, issue_id),
+    )
+    conn.commit()
+    if status in ("Resolved", "Closed"):
+        import json as _json
+        resp = HTMLResponse('<div id="review-slideover-footer" hx-swap-oob="innerHTML:#review-slideover-footer"><div class="flex items-center justify-center gap-2 text-green-600 py-2"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span class="font-semibold text-sm">Issue Closed</span></div></div>')
+        resp.headers["HX-Trigger"] = _json.dumps({"refreshReviewStats": True})
+        return resp
+    return issue_slideover(request, issue_id, conn)
 
 
 # ── Bulk accept all profile suggestions ──────────────────────────────────────
