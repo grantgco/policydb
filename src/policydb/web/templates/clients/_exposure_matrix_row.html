@@ -28,20 +28,18 @@
       {% else %}<span class="text-gray-300">&mdash;</span>{% endif %}
     </span>
   </td>
-  {# Prior Year (read-only) #}
-  <td class="px-3 py-2.5 text-right">
+  {# Prior Year (read-only) — plain number format, no currency symbol #}
+  <td class="px-3 py-2.5 text-right whitespace-nowrap">
     {% if e.prior_amount is not none %}
-    <span class="text-gray-400 text-xs">
-      {% if e.unit == 'currency' %}{{ e.prior_amount | currency }}{% else %}{{ "{:,.0f}".format(e.prior_amount) }}{% endif %}
-    </span>
+    <span class="text-gray-400 text-xs tabular-nums">{{ "{:,.0f}".format(e.prior_amount) }}</span>
     {% else %}<span class="text-gray-300 text-xs">&mdash;</span>{% endif %}
   </td>
-  {# Current Year (editable) #}
-  <td class="px-3 py-2.5 text-right">
+  {# Current Year (editable) — plain number format, no currency symbol #}
+  <td class="px-3 py-2.5 text-right whitespace-nowrap">
     <div contenteditable="true"
-         class="matrix-cell-editable outline-none text-gray-800 text-xs font-semibold rounded px-1 -mx-1 border border-dashed border-blue-200 bg-blue-50/30"
+         class="matrix-cell-editable outline-none text-gray-800 text-xs font-semibold tabular-nums rounded px-1 -mx-1 border border-dashed border-blue-200 bg-blue-50/30"
          data-field="amount"
-         data-placeholder="Enter value...">{% if e.amount is not none %}{% if e.unit == 'currency' %}{{ e.amount | currency }}{% else %}{{ "{:,.0f}".format(e.amount) }}{% endif %}{% endif %}</div>
+         data-placeholder="Enter value...">{% if e.amount is not none %}{{ "{:,.0f}".format(e.amount) }}{% endif %}</div>
   </td>
   {# YoY Δ (auto-calculated) #}
   <td class="px-3 py-2.5 text-center" data-field="yoy">
@@ -78,12 +76,12 @@
     </button>
     {% else %}<span class="text-gray-200 text-sm">&mdash;</span>{% endif %}
   </td>
-  {# Rate (auto-calculated) #}
-  <td class="px-3 py-2.5 text-right" data-field="rate">
+  {# Rate (auto-calculated) — plain number, no currency symbol #}
+  <td class="px-3 py-2.5 text-right whitespace-nowrap" data-field="rate">
     {% if e.link_rate is not none %}
-    <span class="text-xs font-semibold px-2 py-0.5 rounded
+    <span class="text-xs font-semibold tabular-nums px-2 py-0.5 rounded
       {% if e.link_is_primary %}bg-green-50 text-green-700{% else %}text-gray-400{% endif %}">
-      ${{ "{:,.2f}".format(e.link_rate) }}
+      {{ "{:,.2f}".format(e.link_rate) }}
     </span>
     {% elif e.link_policy_uid %}<span class="text-gray-300 text-xs">&mdash;</span>
     {% else %}<span class="text-gray-200 text-xs"></span>{% endif %}

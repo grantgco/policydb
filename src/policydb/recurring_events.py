@@ -106,12 +106,54 @@ def _add_months(d: date, months: int, day_of_month: int | None) -> date:
     return date(y, m, min(target_day, last_day))
 
 
+def _month_shift(d: date, months: int) -> tuple[int, int]:
+    """Return (year, month) after shifting d by `months`."""
+    total = d.month - 1 + months
+    return d.year + total // 12, total % 12 + 1
+
+
+def _nth_weekday_of_month(year: int, month: int, n: int, dow: int) -> date:
+    """Return the Nth weekday of a given month.
+
+    n: 1..4 for first..fourth, -1 for "last". dow: 0=Mon..6=Sun.
+    Falls back to the last occurrence when n=5 in a 4-occurrence month.
+    """
+    if n == -1:
+        last_day = monthrange(year, month)[1]
+        last_date = date(year, month, last_day)
+        offset = (last_date.weekday() - dow) % 7
+        return last_date - timedelta(days=offset)
+
+    n = max(1, min(4, int(n)))
+    first = date(year, month, 1)
+    offset = (dow - first.weekday()) % 7
+    return first + timedelta(days=offset + 7 * (n - 1))
+
+
+def _resolve_monthly(
+    anchor: date,
+    months: int,
+    month_pattern: str | None,
+    day_of_month: int | None,
+    nth_weekday_n: int | None,
+    nth_weekday_dow: int | None,
+) -> date:
+    """Land on the configured day within the month `months` ahead of `anchor`."""
+    if month_pattern == "nth_weekday" and nth_weekday_n is not None and nth_weekday_dow is not None:
+        y, m = _month_shift(anchor, months)
+        return _nth_weekday_of_month(y, m, int(nth_weekday_n), int(nth_weekday_dow))
+    return _add_months(anchor, months, day_of_month)
+
+
 def _advance(
     anchor: date,
     cadence: str,
     interval_n: int,
     day_of_week: int | None,
     day_of_month: int | None,
+    month_pattern: str | None = None,
+    nth_weekday_n: int | None = None,
+    nth_weekday_dow: int | None = None,
 ) -> date:
     """Advance anchor by exactly one cadence step."""
     n = max(1, int(interval_n or 1))
@@ -123,14 +165,22 @@ def _advance(
         return _snap_dow(anchor + timedelta(weeks=n), day_of_week)
     if cadence_norm == "Biweekly":
         return _snap_dow(anchor + timedelta(weeks=2 * n), day_of_week)
-    if cadence_norm == "Monthly":
-        return _add_months(anchor, 1 * n, day_of_month)
-    if cadence_norm == "Quarterly":
-        return _add_months(anchor, 3 * n, day_of_month)
-    if cadence_norm == "Semi-Annual":
-        return _add_months(anchor, 6 * n, day_of_month)
-    if cadence_norm == "Annual":
-        return _add_months(anchor, 12 * n, day_of_month)
+
+    month_steps = {
+        "Monthly": 1,
+        "Quarterly": 3,
+        "Semi-Annual": 6,
+        "Annual": 12,
+    }
+    if cadence_norm in month_steps:
+        return _resolve_monthly(
+            anchor,
+            month_steps[cadence_norm] * n,
+            month_pattern,
+            day_of_month,
+            nth_weekday_n,
+            nth_weekday_dow,
+        )
 
     logger.warning("Unknown cadence %r; defaulting to +7 days", cadence_norm)
     return anchor + timedelta(days=7)
@@ -223,6 +273,10 @@ def _materialize_template(
     if next_occ < start_date:
         next_occ = start_date
 
+    month_pattern = r.get("month_pattern")
+    nth_n = r.get("nth_weekday_n")
+    nth_dow = r.get("nth_weekday_dow")
+
     # Collapse catch-up: if many occurrences are in the past, fast-forward
     # the pointer to the most recent one <= today and emit only one row.
     if mode == "collapse" and next_occ < today:
@@ -233,6 +287,9 @@ def _materialize_template(
                 r["interval_n"],
                 r.get("day_of_week"),
                 r.get("day_of_month"),
+                month_pattern,
+                nth_n,
+                nth_dow,
             )
             if candidate > today:
                 break
@@ -289,6 +346,9 @@ def _materialize_template(
             r["interval_n"],
             r.get("day_of_week"),
             r.get("day_of_month"),
+            month_pattern,
+            nth_n,
+            nth_dow,
         )
 
     # Persist advanced pointer and last_generated_date
@@ -334,12 +394,29 @@ def compute_initial_next_occurrence(
     cadence: str,
     day_of_week: int | None,
     day_of_month: int | None,
+    month_pattern: str | None = None,
+    nth_weekday_n: int | None = None,
+    nth_weekday_dow: int | None = None,
 ) -> date:
-    """Snap start_date forward to the first valid occurrence based on DOW/DOM."""
+    """Snap start_date forward to the first valid occurrence based on the
+    configured pattern. Handles both day_of_month and nth_weekday rules."""
     cadence_norm = (cadence or "").strip()
+    monthly_cadences = ("Monthly", "Quarterly", "Semi-Annual", "Annual")
+
     if cadence_norm in ("Weekly", "Biweekly") and day_of_week is not None:
         return _snap_dow(start_date, day_of_week)
-    if cadence_norm in ("Monthly", "Quarterly", "Semi-Annual", "Annual") and day_of_month:
+
+    if cadence_norm in monthly_cadences and month_pattern == "nth_weekday" \
+            and nth_weekday_n is not None and nth_weekday_dow is not None:
+        this_month = _nth_weekday_of_month(
+            start_date.year, start_date.month, int(nth_weekday_n), int(nth_weekday_dow)
+        )
+        if this_month >= start_date:
+            return this_month
+        y, m = _month_shift(start_date, 1)
+        return _nth_weekday_of_month(y, m, int(nth_weekday_n), int(nth_weekday_dow))
+
+    if cadence_norm in monthly_cadences and day_of_month:
         last_day = monthrange(start_date.year, start_date.month)[1]
         target = date(start_date.year, start_date.month, min(day_of_month, last_day))
         if target < start_date:
