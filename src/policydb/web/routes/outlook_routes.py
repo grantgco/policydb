@@ -246,7 +246,7 @@ def outlook_sync(request: Request, conn=Depends(get_db)):
     runs would race on `last_outlook_sync`, spawn duplicate osascript
     subprocesses, and contend for SQLite write locks.
     """
-    from policydb.email_sync import sync_outlook
+    from policydb.email_sync import sync_outlook, crawl_folders
 
     # Non-blocking: reject the second caller immediately rather than queueing
     if not _sync_lock.acquire(blocking=False):
@@ -268,7 +268,16 @@ def outlook_sync(request: Request, conn=Depends(get_db)):
         )
 
     try:
-        results = sync_outlook(conn)
+        # Phase 3D feature flag: when enabled, run the comprehensive
+        # per-folder crawl (crawl_folders) instead of the legacy
+        # hardcoded Sent + categorized + flagged trio (sync_outlook).
+        # The legacy path stays the default until the user explicitly
+        # opts in via the Settings UI toggle, so existing behavior is
+        # preserved for anyone who hasn't run folder discovery yet.
+        if cfg.get("outlook_use_comprehensive_crawl", False):
+            results = crawl_folders(conn)
+        else:
+            results = sync_outlook(conn)
         # Phase 2 — push PolicyDB contacts to Outlook (fenced by PDB category).
         # Folds results into the same banner; errors don't block email phase.
         try:

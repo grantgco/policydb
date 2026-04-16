@@ -886,6 +886,13 @@ _DEFAULTS: dict[str, Any] = {
     # aren't affected by this number. 14 days is the recommended anchor —
     # smaller = faster first run, larger = more historical catch-up.
     "outlook_first_run_days": 14,
+    # Master switch for the Phase 3D comprehensive crawl. False = legacy
+    # sync_outlook() runs (Sent Items + PDB-categorized + Flagged).
+    # True  = crawl_folders() runs (every folder where include_in_crawl=1
+    # in outlook_folder_sync, with per-folder last_synced_at). Flip via
+    # the toggle on the Email Sync Folders settings card after running
+    # discovery and confirming the folder list looks right.
+    "outlook_use_comprehensive_crawl": False,
     "freemail_domains": [
         "gmail.com", "outlook.com", "yahoo.com", "hotmail.com",
         "aol.com", "icloud.com", "live.com", "msn.com", "me.com",
