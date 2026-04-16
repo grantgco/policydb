@@ -173,25 +173,25 @@
   </details>
   {% endif %}
 
-</div>
-
-{# Slideover container — shared across open/edit #}
-<div id="recurring-slideover"
-     class="fixed inset-0 z-50 hidden"
-     onclick="if(event.target===this) closeRecurringSlideover()">
-  <div class="absolute inset-0 bg-black/30"></div>
-  <div class="absolute right-0 top-0 h-full w-full max-w-lg bg-white shadow-xl overflow-y-auto">
-    <div id="recurring-slideover-content" class="p-5"></div>
+  {# Slideover container — inside tab div so outerHTML swap removes stale instance #}
+  <div id="recurring-slideover"
+       class="fixed inset-0 z-50 hidden"
+       onclick="if(event.target===this) closeRecurringSlideover()">
+    <div class="absolute inset-0 bg-black/30"></div>
+    <div class="absolute right-0 top-0 h-full w-full max-w-lg bg-white shadow-xl overflow-y-auto">
+      <div id="recurring-slideover-content" class="p-5"></div>
+    </div>
   </div>
-</div>
 
-<script>
-function openRecurringSlideover() {
-  var el = document.getElementById('recurring-slideover');
-  if (el) el.classList.remove('hidden');
-}
-function closeRecurringSlideover() {
-  var el = document.getElementById('recurring-slideover');
-  if (el) el.classList.add('hidden');
-}
-</script>
+  <script>
+  function openRecurringSlideover() {
+    var el = document.getElementById('recurring-slideover');
+    if (el) el.classList.remove('hidden');
+  }
+  function closeRecurringSlideover() {
+    var el = document.getElementById('recurring-slideover');
+    if (el) el.classList.add('hidden');
+  }
+  </script>
+
+</div>
