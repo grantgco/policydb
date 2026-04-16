@@ -40,7 +40,9 @@
     </div>
 
     <div>
-      <label class="text-xs font-medium text-gray-600">System Prompt</label>
+      <label class="text-xs font-medium text-gray-600">System Prompt
+        <span class="ml-1 font-normal text-gray-400">(sets the LLM's role and behavior — appears before the data)</span>
+      </label>
       <div class="flex flex-wrap gap-1.5 mt-1 mb-1.5">
         <span class="text-[10px] text-gray-400 leading-relaxed self-center mr-1">Start from:</span>
         <button type="button" class="px-2 py-0.5 text-[10px] rounded-full border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
@@ -61,7 +63,9 @@
     </div>
 
     <div>
-      <label class="text-xs font-medium text-gray-600">Closing Instruction</label>
+      <label class="text-xs font-medium text-gray-600">Closing Instruction
+        <span class="ml-1 font-normal text-gray-400">(what the LLM should produce — appears after the data block)</span>
+      </label>
       <div class="flex flex-wrap gap-1.5 mt-1 mb-1.5">
         <span class="text-[10px] text-gray-400 leading-relaxed self-center mr-1">Start from:</span>
         <button type="button" class="px-2 py-0.5 text-[10px] rounded-full border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
@@ -103,7 +107,7 @@
       <label class="text-xs font-medium text-gray-600 mb-2 block">Include Related Data</label>
       <p class="text-[10px] text-gray-400 mb-2">Select which related data to include in the assembled prompt.</p>
       <div class="flex flex-wrap gap-2" id="pb-related-pills-{{ form_uid }}">
-        {% set all_related = ['client','policies','renewals','issues','follow_ups','milestones','contacts'] %}
+        {% set all_related = ['client','policies','renewals','issues','follow_ups','milestones','contacts','opportunities','recent_activity_log','focus_items','deliverables_due','pending_emails'] %}
         {% for rt in all_related %}
         <label class="cursor-pointer">
           <input type="checkbox" name="pb_related_{{ rt }}" value="{{ rt }}" class="peer sr-only"
@@ -124,7 +128,7 @@
       <div class="space-y-1.5" id="pb-depth-rows-{{ form_uid }}">
         {% for rt in all_related %}
         <div class="pb-depth-row flex items-center gap-3 {% if rt not in related %}hidden{% endif %}" data-type="{{ rt }}" id="pb-depth-row-{{ form_uid }}-{{ rt }}">
-          <span class="text-xs text-gray-600 w-24">{{ rt | replace('_',' ') | capitalize }}</span>
+          <span class="text-xs text-gray-600 w-36">{{ rt | replace('_',' ') | capitalize }}</span>
           <div class="flex rounded-md overflow-hidden border border-gray-200 text-[11px]">
             <label class="cursor-pointer">
               <input type="radio" name="pb_depth_{{ rt }}" value="1" class="peer sr-only"
@@ -147,6 +151,93 @@
           </div>
         </div>
         {% endfor %}
+      </div>
+    </div>
+
+    <!-- Data Field Reference — collapsible help for prompt authors -->
+    <div class="border border-gray-200 rounded-lg overflow-hidden">
+      <button type="button"
+              class="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+              onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('svg').classList.toggle('rotate-180')">
+        <span class="text-xs font-medium text-gray-600">Data Field Reference — what each type provides</span>
+        <svg class="w-4 h-4 text-gray-400 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </button>
+      <div class="hidden px-4 py-3 text-[11px] text-gray-600 space-y-3 bg-white">
+
+        <p class="text-gray-400 italic">The LLM receives: <strong>System Prompt</strong> → data block → <strong>Closing Instruction</strong>. Write your system prompt to set the role and tone. Write your closing instruction to specify what to produce and how to structure it. Reference the fields below in your closing instruction so the LLM knows what to look for.</p>
+
+        <div class="grid grid-cols-1 gap-2">
+
+          <div class="rounded bg-gray-50 px-3 py-2">
+            <div class="font-semibold text-gray-700 mb-1">client <span class="font-normal text-gray-400">— primary or related</span></div>
+            <div>Name, CN number, FEIN, industry, business description, address, website, account executive, broker fee, renewal month, preferred contact method. Strategy: account priorities, renewal strategy, growth opportunities, relationship risk, service model. Client scratchpad. Location scratchpads (one per project/site). Recent saved notes.</div>
+          </div>
+
+          <div class="rounded bg-gray-50 px-3 py-2">
+            <div class="font-semibold text-gray-700 mb-1">policy / renewal <span class="font-normal text-gray-400">— primary</span></div>
+            <div>Policy UID, line of business, carrier, policy number, first named insured, effective/expiration dates, premium, prior premium, rate change %, limit, deductible, coverage form, layer position. Exposure block (linked locations + amounts). Policy scratchpad. Location scratchpad (linked site). Recent saved notes. Policy contacts (name, role, email). <em>renewal</em> adds: days to renewal, urgency flag, renewal timeline milestones, milestone checklist.</div>
+          </div>
+
+          <div class="rounded bg-gray-50 px-3 py-2">
+            <div class="font-semibold text-gray-700 mb-1">issue <span class="font-normal text-gray-400">— primary</span></div>
+            <div>Issue UID, subject, details, status, severity, SLA days, due date, days open, resolution type/notes, root cause. Activity history (dated entries with notes + email from/to/snippet). Issue checklist ([ ] / [x] items). Issue scratchpad. Linked policies.</div>
+          </div>
+
+          <div class="rounded bg-gray-50 px-3 py-2">
+            <div class="font-semibold text-gray-700 mb-1">issues <span class="font-normal text-gray-400">— related</span></div>
+            <div><strong>Summary (default):</strong> one-liner per open issue — UID, subject, status, severity, due date. Closed issues listed briefly. <strong>Full depth:</strong> full issue detail per open issue (same as issue primary, above) — includes activity history, checklist, and scratchpad.</div>
+          </div>
+
+          <div class="rounded bg-gray-50 px-3 py-2">
+            <div class="font-semibold text-gray-700 mb-1">follow_ups <span class="font-normal text-gray-400">— related</span></div>
+            <div>Pending follow-up date, subject, status (Pending/Done), disposition (e.g. "Awaiting Response", "Client Action Required", "Sent Email"), contact person, activity notes/details.</div>
+          </div>
+
+          <div class="rounded bg-gray-50 px-3 py-2">
+            <div class="font-semibold text-gray-700 mb-1">recent_activity_log <span class="font-normal text-gray-400">— related</span></div>
+            <div>Last 15 activities — date, activity type, subject, full notes (up to 500 chars), email from/to, email snippet (up to 400 chars), policy UID if applicable. This is where commitments, call notes, and email threads live.</div>
+          </div>
+
+          <div class="rounded bg-gray-50 px-3 py-2">
+            <div class="font-semibold text-gray-700 mb-1">contacts <span class="font-normal text-gray-400">— related</span></div>
+            <div>Name, role, email, phone, mobile. Client contacts ordered by primary first. Policy contacts include placement colleagues.</div>
+          </div>
+
+          <div class="rounded bg-gray-50 px-3 py-2">
+            <div class="font-semibold text-gray-700 mb-1">focus_items <span class="font-normal text-gray-400">— related</span></div>
+            <div>All open action items bucketed by timing: <strong>Overdue</strong>, <strong>Today</strong>, <strong>This Week</strong>, <strong>Waiting on External</strong>, <strong>Scheduled</strong>. Each item includes date, kind (followup/issue/milestone), days overdue, disposition, and contact. Good for "what needs attention right now" sections.</div>
+          </div>
+
+          <div class="rounded bg-gray-50 px-3 py-2">
+            <div class="font-semibold text-gray-700 mb-1">opportunities <span class="font-normal text-gray-400">— related</span></div>
+            <div>Prospect/opportunity-flagged policies — type, carrier, premium, target effective date, opportunity status, description, notes.</div>
+          </div>
+
+          <div class="rounded bg-gray-50 px-3 py-2">
+            <div class="font-semibold text-gray-700 mb-1">policies / renewals <span class="font-normal text-gray-400">— related</span></div>
+            <div><strong>policies:</strong> all active policies — UID, LOB, carrier, premium, expiration, renewal status. <strong>renewals:</strong> policies within 180-day renewal window with days-to-renewal.</div>
+          </div>
+
+          <div class="rounded bg-gray-50 px-3 py-2">
+            <div class="font-semibold text-gray-700 mb-1">milestones <span class="font-normal text-gray-400">— related</span></div>
+            <div>Policy timeline milestones — name, target date, projected date, health (on_track/at_risk/behind), accountability, waiting_on. Plus policy checklist items ([ ] / [x]).</div>
+          </div>
+
+          <div class="rounded bg-gray-50 px-3 py-2">
+            <div class="font-semibold text-gray-700 mb-1">deliverables_due <span class="font-normal text-gray-400">— related</span></div>
+            <div>Upcoming deadlines bucketed Overdue / Due This Week / Coming Up. Includes timeline milestones and open RFI bundles with item counts.</div>
+          </div>
+
+          <div class="rounded bg-gray-50 px-3 py-2">
+            <div class="font-semibold text-gray-700 mb-1">pending_emails <span class="font-normal text-gray-400">— related</span></div>
+            <div>Follow-ups with email-type dispositions (Awaiting Response, Sent Email, Follow Up Email) — recipient, subject, due date.</div>
+          </div>
+
+        </div>
+
+        <p class="text-gray-400 italic text-[10px]">Depth: <strong>Full</strong> = all fields + sub-records. <strong>Summary</strong> = key fields only (default). <strong>Reference</strong> = name + status, one line.</p>
       </div>
     </div>
 
@@ -197,7 +288,7 @@ var _pbClosings = {
 function pbInsertRole(btn, fieldName) {
   var label = btn.textContent.trim();
   var text = _pbRoles[label] || '';
-  var ta = btn.closest('div').querySelector('textarea[name="' + fieldName + '"]');
+  var ta = btn.closest('form').querySelector('textarea[name="' + fieldName + '"]');
   if (ta && text) {
     ta.value = text;
     ta.focus();
@@ -212,7 +303,7 @@ function pbInsertRole(btn, fieldName) {
 function pbInsertClosing(btn, fieldName) {
   var label = btn.textContent.trim();
   var text = _pbClosings[label] || '';
-  var ta = btn.closest('div').querySelector('textarea[name="' + fieldName + '"]');
+  var ta = btn.closest('form').querySelector('textarea[name="' + fieldName + '"]');
   if (ta && text) {
     ta.value = text;
     ta.focus();
