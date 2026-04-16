@@ -5425,16 +5425,39 @@ def get_review_section_items(conn: sqlite3.Connection, section_key: str) -> list
 
     if section_key == "upcoming_renewals":
         window = cfg.get("review_renewal_window_days", 120)
-        return [dict(r) for r in conn.execute(
-            """SELECT p.*, c.name as client_name
+        # Standalone policies (not part of any program)
+        standalone = [dict(r) for r in conn.execute(
+            """SELECT p.*, c.name as client_name, 'policy' as _item_type
                FROM policies p
                JOIN clients c ON p.client_id = c.id
                WHERE p.expiration_date IS NOT NULL
                  AND p.expiration_date BETWEEN date('now') AND date('now', '+' || ? || ' days')
                  AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+                 AND p.program_id IS NULL
                ORDER BY p.expiration_date ASC""",
             (window,),
         ).fetchall()]
+        # Programs with at least one child policy expiring in window
+        programs = [dict(r) for r in conn.execute(
+            """SELECT pr.id, pr.program_uid, pr.name, c.name as client_name,
+                      pr.renewal_status, pr.line_of_business,
+                      MIN(p.expiration_date) as expiration_date,
+                      COUNT(p.id) as policy_count,
+                      'program' as _item_type
+               FROM programs pr
+               JOIN clients c ON pr.client_id = c.id
+               JOIN policies p ON p.program_id = pr.id
+               WHERE p.expiration_date IS NOT NULL
+                 AND p.expiration_date BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                 AND (p.is_opportunity = 0 OR p.is_opportunity IS NULL)
+                 AND p.archived = 0
+               GROUP BY pr.id
+               ORDER BY MIN(p.expiration_date) ASC""",
+            (window,),
+        ).fetchall()]
+        combined = standalone + programs
+        combined.sort(key=lambda x: x.get("expiration_date") or "9999-99-99")
+        return combined
 
     if section_key == "open_issues":
         stale_days = cfg.get("review_stale_issue_days", 14)

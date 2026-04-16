@@ -39,6 +39,33 @@
   {% if items %}
   <div class="space-y-2">
     {% for item in items %}
+    {% if item.get('_item_type') == 'program' %}
+    <div id="review-walkthrough-program-{{ item.program_uid }}" class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100 border-l-4 border-l-indigo-200">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-medium bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">Program</span>
+          <span class="text-sm font-medium text-gray-800">{{ item.name }}</span>
+          {% if item.client_name %}
+            <span class="text-xs text-gray-400">&middot;</span>
+            <span class="text-xs text-gray-500">{{ item.client_name }}</span>
+          {% endif %}
+        </div>
+        <div class="text-xs text-gray-500 mt-0.5">
+          {{ item.policy_count }} {{ 'policy' if item.policy_count == 1 else 'policies' }}
+          {% if item.line_of_business %} &middot; {{ item.line_of_business }}{% endif %}
+          &middot; Earliest expiry {{ item.expiration_date }}
+        </div>
+      </div>
+      <div class="shrink-0 ml-3">
+        <button hx-get="/review/programs/{{ item.program_uid }}/slideover"
+                hx-target="#review-slideover-container"
+                hx-swap="innerHTML"
+                class="text-xs bg-indigo-50 text-indigo-700 px-3 py-1 rounded hover:bg-indigo-100 transition-colors font-medium">
+          Review Program
+        </button>
+      </div>
+    </div>
+    {% else %}
     <div id="review-walkthrough-policy-{{ item.policy_uid }}" class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
@@ -48,6 +75,10 @@
           {% if item.client_name %}
             <span class="text-xs text-gray-400">&middot;</span>
             <span class="text-xs text-gray-500">{{ item.client_name }}</span>
+          {% endif %}
+          {% if item.project_name %}
+            <span class="text-xs text-gray-400">&middot;</span>
+            <span class="text-xs text-gray-400">{{ item.project_name }}</span>
           {% endif %}
         </div>
         <div class="text-xs text-gray-500 mt-0.5">Expires {{ item.expiration_date }}</div>
@@ -61,6 +92,7 @@
         </button>
       </div>
     </div>
+    {% endif %}
     {% endfor %}
   </div>
   {% else %}
@@ -73,33 +105,35 @@
     {% for item in items %}
     <div class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-gray-50 border border-gray-100">
       <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2">
-          <span class="text-sm font-medium text-gray-800 truncate">{{ item.subject or 'Issue' }}</span>
+        <div class="flex items-center gap-2 flex-wrap">
           {% if item.issue_severity %}
-            <span class="text-xs px-1.5 py-0.5 rounded-full font-medium
+            <span class="text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0
               {% if item.issue_severity == 'Critical' %}bg-red-100 text-red-700
               {% elif item.issue_severity == 'High' %}bg-orange-100 text-orange-700
               {% else %}bg-yellow-100 text-yellow-700{% endif %}">
               {{ item.issue_severity }}
             </span>
           {% endif %}
+          <span class="text-sm font-medium text-gray-800 truncate">{{ item.subject or 'Issue' }}</span>
         </div>
-        <div class="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+        <div class="flex items-center gap-2 text-xs text-gray-500 mt-0.5 flex-wrap">
           {% if item.client_name %}<span>{{ item.client_name }}</span>{% endif %}
+          {% if item.renewal_expiring_soon %}
+            <span class="text-xs font-medium text-amber-600 bg-amber-50 px-1 py-0.5 rounded">Renewal soon</span>
+          {% endif %}
           {% if item.activity_date %}
             <span class="text-gray-400">&middot;</span>
-            <span>Last activity {{ item.activity_date }}</span>
+            <span>{{ item.activity_date }}</span>
           {% endif %}
         </div>
       </div>
       <div class="shrink-0 ml-3">
         <button type="button"
-                hx-get="/issues/{{ item.id }}/edit-slideover"
-                hx-target="#fu-edit-content"
+                hx-get="/review/issues/{{ item.id }}/slideover"
+                hx-target="#review-slideover-container"
                 hx-swap="innerHTML"
-                hx-on::after-request="openFollowupEdit()"
                 class="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded hover:bg-gray-200 transition-colors font-medium">
-          Edit
+          Review
         </button>
       </div>
     </div>
