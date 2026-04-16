@@ -1090,6 +1090,43 @@ def _compute_folder_since(folder_row: dict, first_run_days: int) -> datetime:
     return datetime.now() - timedelta(days=max(first_run_days, 1))
 
 
+def _walk_conversation(conn: sqlite3.Connection, conv_id: str) -> dict | None:
+    """Find a prior matched activity in the same Outlook conversation.
+
+    When a new email arrives without a ref tag, we still want to link it
+    to the right client/policy/issue if any earlier message in the same
+    thread already established that link. The legacy
+    ``_run_thread_inheritance`` does this via normalized subject after
+    the whole batch completes; this function does it via Outlook's
+    native ``conversation_id`` per email, in line, before the domain
+    fallback fires.
+
+    Returns the most recently matched activity's link fields (client_id,
+    policy_id, program_id, issue_id) so the caller can treat it as a
+    Tier 2 match — or ``None`` if no prior activity in this conversation
+    was matched. Empty / missing conv_id always returns ``None``.
+
+    Why "most recent" (ORDER BY id DESC LIMIT 1): if the same thread has
+    been progressively re-routed (e.g., started on policy A, was
+    converted to opportunity B), the latest decision is the one to
+    follow — older link metadata may be stale.
+    """
+    if not conv_id:
+        return None
+    row = conn.execute(
+        """SELECT client_id, policy_id, program_id, issue_id
+           FROM activity_log
+           WHERE outlook_conversation_id = ?
+             AND client_id IS NOT NULL
+           ORDER BY id DESC
+           LIMIT 1""",
+        (conv_id,),
+    ).fetchone()
+    if not row:
+        return None
+    return dict(row)
+
+
 def crawl_folders(conn: sqlite3.Connection) -> dict:
     """Phase 3D comprehensive crawl: iterate every included folder per
     ``outlook_folder_sync`` and process its messages.
@@ -1291,7 +1328,21 @@ def _process_email(
                 logger.debug("Ref tag did not resolve: %s", tag)
 
     if not matches:
-        # Tier 2: try domain-based matching
+        # Phase 3D conv-id thread walk: if any earlier message in this
+        # Outlook conversation already established a client/policy link,
+        # inherit it now — before the lower-confidence domain fallback.
+        # This catches replies in long threads where the carrier dropped
+        # the ref tag but the thread itself is still in scope. Empty or
+        # absent conversation_id (e.g. legacy sync paths) makes this a
+        # cheap no-op.
+        conv_id = email.get("conversation_id") or ""
+        if conv_id:
+            thread_match = _walk_conversation(conn, conv_id)
+            if thread_match:
+                matches.append(thread_match)
+
+    if not matches:
+        # Tier 3 (was Tier 2 pre-3D): domain-based matching
         all_addresses = []
         if email.get("sender"):
             all_addresses.append(email["sender"])
