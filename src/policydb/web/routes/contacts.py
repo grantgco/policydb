@@ -125,7 +125,7 @@ def contacts_ai_import_parse(
     # Check which contacts already exist globally
     for contact in contacts:
         existing = conn.execute(
-            "SELECT id, email, phone, organization FROM contacts "
+            "SELECT id, email, phone, mobile, organization, title FROM contacts "
             "WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))",
             (contact["name"],),
         ).fetchone()
@@ -188,24 +188,43 @@ async def contacts_ai_import_apply(request: Request, conn=Depends(get_db)):
             if mobile:
                 mobile = format_phone(mobile)
 
-            cid = get_or_create_contact(
-                conn, name,
-                email=email or None,
-                phone=phone or None,
-                mobile=mobile or None,
-                organization=org or None,
-            )
+            contact_id_str = form.get(f"contact_id_{i}", "").strip()
 
-            # Update title if provided
-            if title:
-                conn.execute(
-                    "UPDATE contacts SET title = ? WHERE id = ? AND (title IS NULL OR title = '')",
-                    (title, cid),
-                )
-
-            if contact.get("existing_contact"):
-                updated += 1
+            if contact_id_str:
+                # Existing contact — update only fields the user opted to overwrite
+                cid = int(contact_id_str)
+                field_updates: list[str] = []
+                params: list = []
+                for field, value, flag in [
+                    ("email", email, f"overwrite_email_{i}"),
+                    ("phone", phone, f"overwrite_phone_{i}"),
+                    ("mobile", mobile, f"overwrite_mobile_{i}"),
+                    ("organization", org, f"overwrite_org_{i}"),
+                    ("title", title, f"overwrite_title_{i}"),
+                ]:
+                    if value and form.get(flag):
+                        field_updates.append(f"{field}=?")
+                        params.append(value)
+                if field_updates:
+                    field_updates.append("updated_at=CURRENT_TIMESTAMP")
+                    params.append(cid)
+                    conn.execute(
+                        f"UPDATE contacts SET {', '.join(field_updates)} WHERE id=?", params
+                    )
+                    updated += 1
             else:
+                # New contact
+                cid = get_or_create_contact(
+                    conn, name,
+                    email=email or None,
+                    phone=phone or None,
+                    mobile=mobile or None,
+                    organization=org or None,
+                )
+                if title:
+                    conn.execute(
+                        "UPDATE contacts SET title = ? WHERE id = ?", (title, cid)
+                    )
                 created += 1
         except Exception as e:
             errors.append(f"{name}: {e}")
