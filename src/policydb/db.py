@@ -2080,6 +2080,16 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         conn.commit()
         logger.info("Migration 154: added outlook_conversation_id + outlook_internet_message_id columns")
 
+    if 155 not in applied:
+        _migration_sql = (_MIGRATIONS_DIR / "155_renewal_batches.sql").read_text()
+        conn.executescript(_migration_sql)
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (155, "Add renewal_batches table (Renew Policies workflow)"),
+        )
+        conn.commit()
+        logger.info("Migration 155: created renewal_batches table")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 

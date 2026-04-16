@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Fill in New Terms — Renew Policies{% endblock %}
+{% block content %}
+
+<div class="max-w-full px-4 py-3 border-b border-gray-200 bg-white">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-lg font-semibold text-gray-900">Fill in New Terms</h1>
+      <p class="text-sm text-gray-500 mt-0.5">
+        {{ rows | length }} new term{{ '' if rows | length == 1 else 's' }} created.
+        Enter carrier, policy number, limits, and any other details for each row. Changes save automatically.
+      </p>
+    </div>
+    <div class="flex items-center gap-2">
+      {% if return_to %}
+      <a href="{{ return_to }}"
+         class="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 text-gray-700">
+        ← Back
+      </a>
+      {% endif %}
+      <a href="/dashboard"
+         class="px-3 py-1.5 text-sm bg-marsh text-white rounded-md hover:bg-marsh/90 font-medium">
+        Done
+      </a>
+    </div>
+  </div>
+</div>
+
+{% include "_spreadsheet.html" %}
+
+<script>
+(function() {
+  var columns = {{ columns | tojson }};
+  var data = {{ rows | tojson }};
+  var projectsByClient = {{ projects_by_client | tojson }};
+  var clientList = {{ client_list | tojson }};
+
+  initSpreadsheet({
+    el: '#spreadsheet-grid',
+    title: 'New Terms',
+    data: data,
+    columns: columns,
+    frozenFields: ['client_name'],
+    patchUrl: '/policies/{policy_uid}/cell',
+    idField: 'policy_uid',
+    entityName: 'Policy',
+    exportUrl: null,
+    projectsByClient: projectsByClient,
+    clientList: clientList,
+  });
+})();
+</script>
+
+{% endblock %}

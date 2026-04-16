@@ -1,29 +1,32 @@
-{# Bind Order — slideover panel.
+{# Renew Policies — slideover panel.
    Renders one section per subject (program or standalone policy) with checkable
    children, per-subject term dates, optional disposition for unchecked children.
-   Submitted as JSON to POST /bind-order/submit via window.submitBindOrder().
+   Submits JSON to POST /renew-policies/submit via window.submitRenewPolicies().
+
+   On success: redirects to the batch edit grid so the user can fill in new-term
+   fields (carrier, limits, retro, etc.) for every row just created.
 
    Expects:
-     panel: BindPanelData (bind_date, sections[], errors[])
+     panel: RenewPanelData (bind_date, sections[], errors[])
        sections[]: SubjectPanelSection
-         children[]: ChildPanelRow (state: needs_renew | ready_to_bind | already_bound)
+         children[]: ChildPanelRow (state: needs_renew | ready_to_renew | already_renewed)
 #}
 
 {# Backdrop #}
-<div id="bind-order-backdrop"
+<div id="renew-policies-backdrop"
      class="fixed inset-0 bg-black/30 z-40"
-     onclick="closeBindOrderSlideover()"></div>
+     onclick="closeRenewPoliciesSlideover()"></div>
 
 {# Panel — wider than compose to accommodate child tables #}
-<div id="bind-order-panel"
+<div id="renew-policies-panel"
      class="fixed top-0 right-0 bottom-0 w-[640px] max-sm:w-full bg-white shadow-xl z-50 flex flex-col">
 
   <div class="flex items-center justify-between p-4 border-b shrink-0">
     <div>
-      <h2 class="text-base font-semibold text-gray-900">Bind Order</h2>
-      <p class="text-xs text-gray-500 mt-0.5">Renew + bind in one action — review children, set new term dates, capture the bind note.</p>
+      <h2 class="text-base font-semibold text-gray-900">Renew Policies</h2>
+      <p class="text-xs text-gray-500 mt-0.5">Create new term rows. Fill in carrier, limits, and other details on the next page.</p>
     </div>
-    <button onclick="closeBindOrderSlideover()"
+    <button onclick="closeRenewPoliciesSlideover()"
             class="text-gray-400 hover:text-gray-600 transition-colors"
             aria-label="Close panel">
       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -40,32 +43,18 @@
     </div>
   {% endif %}
 
-  <div class="flex-1 overflow-y-auto p-4 space-y-5" id="bind-order-body">
-
-    {# ── Top-level shared fields ── #}
-    <div class="grid grid-cols-2 gap-3">
-      <div>
-        <label class="text-[11px] font-medium text-gray-500 uppercase tracking-wide block mb-1">Bind Date</label>
-        <input type="date" id="bo-bind-date"
-               value="{{ panel.bind_date }}"
-               class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-marsh">
-      </div>
-      <div>
-        <label class="text-[11px] font-medium text-gray-500 uppercase tracking-wide block mb-1">Subjects</label>
-        <div class="text-sm text-gray-700 py-2">{{ panel.sections|length }} {{ 'item' if panel.sections|length == 1 else 'items' }}</div>
-      </div>
-    </div>
+  <div class="flex-1 overflow-y-auto p-4 space-y-5" id="renew-policies-body">
 
     <div>
-      <label class="text-[11px] font-medium text-gray-500 uppercase tracking-wide block mb-1">Bind Note (optional)</label>
-      <textarea id="bo-bind-note" rows="2"
-                placeholder="e.g., Per Sarah Jones email 2026-04-10 — bind all lines"
+      <label class="text-[11px] font-medium text-gray-500 uppercase tracking-wide block mb-1">Note (optional)</label>
+      <textarea id="rp-note" rows="2"
+                placeholder="e.g., Per Sarah Jones email 2026-04-10 — roll lines forward"
                 class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-marsh resize-none"></textarea>
     </div>
 
     {# ── Subject sections ── #}
     {% for section in panel.sections %}
-    <div class="border border-gray-200 rounded-lg overflow-hidden bo-section"
+    <div class="border border-gray-200 rounded-lg overflow-hidden rp-section"
          data-subject-type="{{ section.subject_type }}"
          data-subject-uid="{{ section.subject_uid }}">
 
@@ -85,12 +74,12 @@
       <div class="px-3 py-2 grid grid-cols-2 gap-3 border-b border-gray-100 bg-white">
         <div>
           <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide block mb-1">New Effective</label>
-          <input type="date" class="bo-eff w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-marsh"
+          <input type="date" class="rp-eff w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-marsh"
                  value="{{ section.new_effective }}">
         </div>
         <div>
           <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide block mb-1">New Expiration</label>
-          <input type="date" class="bo-exp w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-marsh"
+          <input type="date" class="rp-exp w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-marsh"
                  value="{{ section.new_expiration }}">
         </div>
       </div>
@@ -108,15 +97,16 @@
         </thead>
         <tbody class="divide-y divide-gray-50">
           {% for child in section.children %}
-          {% set is_locked = (child.state == 'already_bound') %}
-          <tr class="bo-child-row hover:bg-gray-50/30 {{ 'opacity-60' if is_locked else '' }}"
+          {% set is_locked = (child.state == 'already_renewed') or child.is_opportunity %}
+          <tr class="rp-child-row hover:bg-gray-50/30 {{ 'opacity-60' if is_locked else '' }}"
               data-policy-uid="{{ child.policy_uid }}"
-              data-state="{{ child.state }}">
+              data-state="{{ child.state }}"
+              data-is-opportunity="{{ '1' if child.is_opportunity else '0' }}">
             <td class="py-1.5 pl-3 pr-2">
-              <input type="checkbox" class="bo-check rounded border-gray-300 text-marsh focus:ring-marsh"
+              <input type="checkbox" class="rp-check rounded border-gray-300 text-marsh focus:ring-marsh"
                      {{ 'checked' if not is_locked else '' }}
                      {{ 'disabled' if is_locked else '' }}
-                     onchange="onBindChildToggle(this)">
+                     onchange="onRenewChildToggle(this)">
             </td>
             <td class="py-1.5 pr-2">
               <span class="font-medium text-gray-700">{{ child.policy_uid }}</span>
@@ -124,28 +114,30 @@
             <td class="py-1.5 pr-2 text-gray-600">{{ child.policy_type or '—' }}</td>
             <td class="py-1.5 pr-2 text-gray-600">{{ child.carrier or '—' }}</td>
             <td class="py-1.5 pr-2 text-right">
-              <input type="text" class="bo-premium w-24 text-xs text-right border border-transparent hover:border-gray-200 focus:border-marsh focus:outline-none rounded px-1 py-0.5"
-                     value="{{ '${:,.0f}'.format(child.premium) if child.premium else '' }}"
+              <input type="text" class="rp-premium w-24 text-xs text-right border border-transparent hover:border-gray-200 focus:border-marsh focus:outline-none rounded px-1 py-0.5"
+                     value="{{ '${:,.0f}'.format(child.premium) if child.premium is not none else '' }}"
                      placeholder="—"
                      {{ 'disabled' if is_locked else '' }}>
             </td>
             <td class="py-1.5 pr-3">
-              {% if child.state == 'needs_renew' %}
+              {% if child.is_opportunity %}
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-50 text-purple-700 border border-purple-100" title="Opportunities must be converted to policies first.">opportunity</span>
+              {% elif child.state == 'needs_renew' %}
                 <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-100">needs renew</span>
-              {% elif child.state == 'ready_to_bind' %}
-                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-100">ready to bind</span>
+              {% elif child.state == 'ready_to_renew' %}
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-100">ready</span>
               {% else %}
-                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 border border-gray-200">already bound</span>
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 border border-gray-200">already renewed</span>
               {% endif %}
             </td>
           </tr>
           {# Disposition row appears when checkbox is unchecked #}
-          <tr class="bo-dispo-row hidden bg-amber-50/30">
+          <tr class="rp-dispo-row hidden bg-amber-50/30">
             <td></td>
             <td colspan="5" class="py-1.5 pr-3">
               <div class="flex items-center gap-2">
                 <span class="text-[11px] text-gray-500">Disposition:</span>
-                <select class="bo-dispo text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-marsh">
+                <select class="rp-dispo text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-marsh">
                   <option value="">— pick one —</option>
                   <option value="Declined">Declined</option>
                   <option value="Lost">Lost</option>
@@ -163,57 +155,54 @@
 
   </div>
 
-  {# ── Action bar ── #}
-  <div id="bo-empty-warning"
+  {# ── Warning + Action bar ── #}
+  <div id="rp-empty-warning"
        class="hidden border-t border-amber-100 bg-amber-50 px-4 py-2 text-xs text-amber-800">
-    Nothing to bind — every row shown is already bound, renewed, or archived.
-    If the term has lapsed, renew it first from the expiring policy row.
+    Nothing to renew — every row shown is already renewed, archived, or an opportunity.
   </div>
   <div class="border-t border-gray-200 px-4 py-3 flex items-center justify-between shrink-0 bg-white">
-    <button onclick="closeBindOrderSlideover()"
+    <button onclick="closeRenewPoliciesSlideover()"
             class="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded">
       Cancel
     </button>
-    <button id="bo-confirm-btn" onclick="submitBindOrder()"
+    <button id="rp-confirm-btn" onclick="submitRenewPolicies()"
             class="bg-marsh hover:bg-marsh/90 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors">
-      Confirm Bind
+      Create Renewals
     </button>
   </div>
 </div>
 
 <script>
 (function() {
-  // Toggle the disposition row when a child checkbox changes
-  window.onBindChildToggle = function(cb) {
-    var row = cb.closest('tr.bo-child-row');
+  window.onRenewChildToggle = function(cb) {
+    var row = cb.closest('tr.rp-child-row');
     var dispoRow = row.nextElementSibling;
-    if (!dispoRow || !dispoRow.classList.contains('bo-dispo-row')) return;
+    if (!dispoRow || !dispoRow.classList.contains('rp-dispo-row')) return;
     if (cb.checked) {
       dispoRow.classList.add('hidden');
     } else {
       dispoRow.classList.remove('hidden');
     }
-    updateBindConfirmBtn();
+    updateRenewConfirmBtn();
   };
 
-  function updateBindConfirmBtn() {
-    var btn = document.getElementById('bo-confirm-btn');
-    var warn = document.getElementById('bo-empty-warning');
+  function updateRenewConfirmBtn() {
+    var btn = document.getElementById('rp-confirm-btn');
+    var warn = document.getElementById('rp-empty-warning');
     if (!btn) return;
     var anyChecked = false;
     var uncheckedWithDispo = 0;
     var uncheckedWithoutDispo = 0;
-    var actionableRows = 0; // non-disabled rows that can contribute work
-    document.querySelectorAll('.bo-child-row').forEach(function(row) {
-      var cb = row.querySelector('.bo-check');
+    var actionableRows = 0;
+    document.querySelectorAll('.rp-child-row').forEach(function(row) {
+      var cb = row.querySelector('.rp-check');
       if (!cb || cb.disabled) return;
       actionableRows++;
       if (cb.checked) {
         anyChecked = true;
       } else {
-        var dispo = row.nextElementSibling && row.nextElementSibling.querySelector('.bo-dispo');
+        var dispo = row.nextElementSibling && row.nextElementSibling.querySelector('.rp-dispo');
         var val = dispo ? (dispo.value || '') : '';
-        // "Defer" is a no-op disposition — doesn't count as real work.
         if (val && val !== 'Defer') {
           uncheckedWithDispo++;
         } else {
@@ -222,9 +211,6 @@
       }
     });
     var hasWork = anyChecked || uncheckedWithDispo > 0;
-    // Confirm enabled only when there's at least one unit of real work AND every
-    // unchecked row either has a non-Defer disposition or will be left alone.
-    // Additionally: if zero actionable rows exist (every row locked), disable entirely.
     btn.disabled = !(hasWork && uncheckedWithoutDispo === 0);
     btn.classList.toggle('opacity-50', btn.disabled);
     btn.classList.toggle('cursor-not-allowed', btn.disabled);
@@ -233,9 +219,8 @@
     }
   }
 
-  // Hook disposition selects
-  document.querySelectorAll('.bo-dispo').forEach(function(sel) {
-    sel.addEventListener('change', updateBindConfirmBtn);
+  document.querySelectorAll('.rp-dispo').forEach(function(sel) {
+    sel.addEventListener('change', updateRenewConfirmBtn);
   });
 
   function parseCurrency(s) {
@@ -246,34 +231,31 @@
     return isNaN(n) ? null : n;
   }
 
-  window.submitBindOrder = function() {
-    var btn = document.getElementById('bo-confirm-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Binding…'; }
+  window.submitRenewPolicies = function() {
+    var btn = document.getElementById('rp-confirm-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
 
-    var bindDate = document.getElementById('bo-bind-date').value;
-    var bindNote = document.getElementById('bo-bind-note').value;
+    var note = document.getElementById('rp-note').value;
 
     var subjects = [];
-    document.querySelectorAll('.bo-section').forEach(function(section) {
+    document.querySelectorAll('.rp-section').forEach(function(section) {
       var subjectType = section.dataset.subjectType;
       var subjectUid = section.dataset.subjectUid;
-      var newEff = section.querySelector('.bo-eff').value;
-      var newExp = section.querySelector('.bo-exp').value;
+      var newEff = section.querySelector('.rp-eff').value;
+      var newExp = section.querySelector('.rp-exp').value;
       var children = [];
-      section.querySelectorAll('.bo-child-row').forEach(function(row) {
-        var cb = row.querySelector('.bo-check');
-        if (!cb) return;
-        var checked = cb.checked && !cb.disabled;
-        var dispoSel = row.nextElementSibling && row.nextElementSibling.querySelector('.bo-dispo');
+      section.querySelectorAll('.rp-child-row').forEach(function(row) {
+        var cb = row.querySelector('.rp-check');
+        if (!cb || cb.disabled) return;
+        var checked = cb.checked;
+        var dispoSel = row.nextElementSibling && row.nextElementSibling.querySelector('.rp-dispo');
         var dispo = dispoSel ? dispoSel.value : null;
-        var premInput = row.querySelector('.bo-premium');
+        var premInput = row.querySelector('.rp-premium');
         var premVal = premInput ? parseCurrency(premInput.value) : null;
-        // Skip already-bound rows entirely (no payload — they're informational)
-        if (cb.disabled) return;
         children.push({
           policy_uid: row.dataset.policyUid,
           checked: checked,
-          disposition: checked ? 'Bound' : (dispo || 'Defer'),
+          disposition: checked ? 'Renew' : (dispo || 'Defer'),
           new_premium: checked ? premVal : null,
         });
       });
@@ -286,33 +268,39 @@
       });
     });
 
-    fetch('/bind-order/submit', {
+    var returnTo = window.location.pathname + window.location.search;
+
+    fetch('/renew-policies/submit', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        bind_date: bindDate,
-        bind_note: bindNote,
+        bind_note: note,
+        return_to: returnTo,
         subjects: subjects,
       }),
     }).then(function(r) {
       return r.json().then(function(data) { return {ok: r.ok, status: r.status, data: data}; });
     }).then(function(res) {
       if (res.ok && res.data.ok) {
-        if (typeof showToast === 'function') showToast(res.data.toast_message || 'Bind order complete', true);
-        closeBindOrderSlideover();
-        // Soft refresh: reload after a short delay to surface new state
-        setTimeout(function() { window.location.reload(); }, 600);
+        if (typeof showToast === 'function') showToast(res.data.toast_message || 'Renewals created', true);
+        // Redirect to the edit grid so the user can fill in new-term fields.
+        if (res.data.edit_grid_url) {
+          window.location = res.data.edit_grid_url;
+        } else {
+          closeRenewPoliciesSlideover();
+          setTimeout(function() { window.location.reload(); }, 600);
+        }
       } else {
         var msg = (res.data && (res.data.detail || res.data.error)) || ('HTTP ' + res.status);
-        if (typeof showToast === 'function') showToast('Bind failed: ' + msg, false);
-        if (btn) { btn.disabled = false; btn.textContent = 'Confirm Bind'; }
+        if (typeof showToast === 'function') showToast('Renewal failed: ' + msg, false);
+        if (btn) { btn.disabled = false; btn.textContent = 'Create Renewals'; }
       }
     }).catch(function(err) {
       if (typeof showToast === 'function') showToast('Network error: ' + err, false);
-      if (btn) { btn.disabled = false; btn.textContent = 'Confirm Bind'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Create Renewals'; }
     });
   };
 
-  updateBindConfirmBtn();
+  updateRenewConfirmBtn();
 })();
 </script>

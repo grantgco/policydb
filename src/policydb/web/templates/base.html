@@ -728,7 +728,9 @@ window.initClientAutocomplete = initClientAutocomplete;
   <!-- Compose Slideover (content loaded via HTMX, template provides its own positioning) -->
   <div id="compose-slideover-body"></div>
 
-  <!-- Bind Order Slideover (content loaded via HTMX) -->
+  <!-- Renew Policies Slideover (content loaded via HTMX) -->
+  <div id="renew-policies-slideover-body"></div>
+  <!-- Legacy Bind Order slideover container kept for backward compat during transition -->
   <div id="bind-order-slideover-body"></div>
 </div>
 
@@ -837,24 +839,23 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-// ── Bind Order slideover ─────────────────────────────────────────────────
-function openBindOrderSlideover(subjects) {
+// ── Renew Policies slideover ─────────────────────────────────────────────
+function openRenewPoliciesSlideover(subjects) {
   if (!subjects) return;
-  // Hide Working Notes so it doesn't overlap slideover action bar
   var wn = document.getElementById('working-notes-float');
   if (wn) wn.style.display = 'none';
 
-  htmx.ajax('GET', '/bind-order/panel?subjects=' + encodeURIComponent(subjects), {
-    target: '#bind-order-slideover-body',
+  htmx.ajax('GET', '/renew-policies/panel?subjects=' + encodeURIComponent(subjects), {
+    target: '#renew-policies-slideover-body',
     swap: 'innerHTML'
   }).then(function() {
     document.body.style.overflow = 'hidden';
   });
 }
 
-function closeBindOrderSlideover() {
-  var backdrop = document.getElementById('bind-order-backdrop');
-  var panel = document.getElementById('bind-order-panel');
+function closeRenewPoliciesSlideover() {
+  var backdrop = document.getElementById('renew-policies-backdrop');
+  var panel = document.getElementById('renew-policies-panel');
   if (backdrop) backdrop.remove();
   if (panel) panel.remove();
   document.body.style.overflow = '';
@@ -863,10 +864,24 @@ function closeBindOrderSlideover() {
 }
 
 document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape' && document.getElementById('bind-order-panel')) {
-    closeBindOrderSlideover();
+  if (e.key === 'Escape' && document.getElementById('renew-policies-panel')) {
+    closeRenewPoliciesSlideover();
   }
 });
+
+// Back-compat shims: keep the old name aliased so anything that still calls
+// openBindOrderSlideover() routes to the new panel during the transition.
+window.openBindOrderSlideover = openRenewPoliciesSlideover;
+// The legacy /bind-order/panel template renders its own dom ids, so the close
+// shim has to handle BOTH the new and legacy panel+backdrop. Removing only the
+// new-panel ids left the old one visible and body.style.overflow locked.
+window.closeBindOrderSlideover = function() {
+  var legacyBackdrop = document.getElementById('bind-order-backdrop');
+  var legacyPanel = document.getElementById('bind-order-panel');
+  if (legacyBackdrop) legacyBackdrop.remove();
+  if (legacyPanel) legacyPanel.remove();
+  closeRenewPoliciesSlideover();
+};
 </script>
 
 

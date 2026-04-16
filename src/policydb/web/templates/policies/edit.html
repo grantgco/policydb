@@ -28,12 +28,32 @@
               class="px-3 py-1.5 text-xs font-medium rounded-lg border border-indigo-300 text-indigo-600 hover:bg-indigo-50 transition-colors">
         Import from AI
       </button>
-      {# Bind Order — single-policy launcher. For program-wide bind, use the program detail page. #}
-      <button type="button"
-        onclick="openBindOrderSlideover('policy:{{ policy.policy_uid }}')"
-        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-marsh hover:bg-marsh/90 text-white transition-colors">
-        Bind Order
+      {# Renew Policy — single-policy launcher. For program-wide renewal, use the program detail page.
+         Disabled for opportunities (must be converted to a policy first). #}
+      {% set _is_opp = policy.is_opportunity | default(false) %}
+      {% if _is_opp %}
+      <button type="button" disabled
+        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed"
+        title="Convert opportunity to policy first.">
+        Renew Policy
       </button>
+      {% else %}
+      <button type="button"
+        onclick="openRenewPoliciesSlideover('policy:{{ policy.policy_uid }}')"
+        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-marsh hover:bg-marsh/90 text-white transition-colors">
+        Renew Policy
+      </button>
+      {% endif %}
+      {# Mark Bound — per-policy action taken when a binder is received. Opens
+         a small modal prompting for bind date + optional note. #}
+      {% if not _is_opp and not policy.bound_date %}
+      <button type="button"
+        onclick="openMarkBoundModal('{{ policy.policy_uid }}')"
+        class="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+        title="Record that the carrier has issued the binder.">
+        Mark Bound
+      </button>
+      {% endif %}
       {# ── More Actions kebab ── #}
       <div class="relative" id="more-actions-wrapper">
         <button type="button" id="more-actions-btn"
@@ -42,12 +62,8 @@
           <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="4" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="10" cy="16" r="1.5"/></svg>
         </button>
         <div id="more-actions-menu" class="hidden absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1">
-          <form method="post" action="/policies/{{ policy.policy_uid }}/renew">
-            <button type="button" onclick="confirmAction(this, 'Renew this policy?')"
-              class="w-full text-left px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 transition-colors">
-              Renew Policy
-            </button>
-          </form>
+          {# Renew Policy now lives on the main action bar — it opens the
+             Renew Policies slideover instead of the legacy one-shot redirect. #}
           <button type="button"
             hx-get="/compose?policy_uid={{ policy.policy_uid }}&purpose=loss_run_request"
             hx-target="body" hx-swap="beforeend"
@@ -191,6 +207,47 @@ document.addEventListener('DOMContentLoaded', function() {
     mBtn.addEventListener('click', function(e) { e.stopPropagation(); mMenu.classList.toggle('hidden'); });
     document.addEventListener('click', function() { mMenu.classList.add('hidden'); });
     mMenu.addEventListener('click', function(e) { e.stopPropagation(); });
+  }
+});
+
+// ── Mark Bound modal ─────────────────────────────────────────────────────
+function openMarkBoundModal(policyUid) {
+  var today = new Date().toISOString().slice(0, 10);
+  var html = [
+    '<div id="mb-backdrop" class="fixed inset-0 bg-black/30 z-40" onclick="closeMarkBoundModal()"></div>',
+    '<div id="mb-modal" class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl z-50 w-[420px] p-5">',
+    '  <h3 class="text-base font-semibold text-gray-900 mb-3">Mark ' + policyUid + ' Bound</h3>',
+    '  <form method="post" action="/policies/' + encodeURIComponent(policyUid) + '/mark-bound">',
+    '    <label class="text-[11px] font-medium text-gray-500 uppercase tracking-wide block mb-1">Bind Date</label>',
+    '    <input type="date" name="bind_date" value="' + today + '" required',
+    '           class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mb-3 focus:outline-none focus:border-marsh">',
+    '    <label class="text-[11px] font-medium text-gray-500 uppercase tracking-wide block mb-1">Note (optional)</label>',
+    '    <textarea name="note" rows="2" placeholder="e.g., Binder received via email"',
+    '              class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mb-4 focus:outline-none focus:border-marsh resize-none"></textarea>',
+    '    <div class="flex items-center justify-end gap-2">',
+    '      <button type="button" onclick="closeMarkBoundModal()" class="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded">Cancel</button>',
+    '      <button type="submit" class="bg-marsh hover:bg-marsh/90 text-white text-sm font-medium px-4 py-1.5 rounded-lg">Mark Bound</button>',
+    '    </div>',
+    '  </form>',
+    '</div>'
+  ].join('\n');
+  var container = document.getElementById('mark-bound-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'mark-bound-container';
+    document.body.appendChild(container);
+  }
+  container.innerHTML = html;
+}
+
+function closeMarkBoundModal() {
+  var c = document.getElementById('mark-bound-container');
+  if (c) c.remove();
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && document.getElementById('mark-bound-container')) {
+    closeMarkBoundModal();
   }
 });
 </script>
