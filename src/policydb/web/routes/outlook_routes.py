@@ -195,12 +195,15 @@ def outlook_compose(req: ComposeRequest, conn=Depends(get_db)):
             subject_note = subject or f"Loss Run Request — {req.policy_uid or ''}"
             details_note = f"Loss run request sent to {dest_label} ({req.to})."
             account_exec = cfg.get("default_account_exec", "Grant")
+            # Loss run requests are formal templates — 0.25h is a realistic
+            # minimum (prep + review + send). Previously NULL, which silently
+            # dropped these activities out of all hours reporting.
             conn.execute(
                 """INSERT INTO activity_log
                    (client_id, policy_id, activity_type, subject, details,
                     activity_date, follow_up_date, account_exec, disposition,
-                    email_direction)
-                   VALUES (?, ?, 'Email', ?, ?, date('now'), ?, ?, 'Waiting on Carrier', 'outbound')""",
+                    email_direction, duration_hours)
+                   VALUES (?, ?, 'Email', ?, ?, date('now'), ?, ?, 'Waiting on Carrier', 'outbound', ?)""",
                 (
                     client_id or None,
                     policy_id,
@@ -208,6 +211,7 @@ def outlook_compose(req: ComposeRequest, conn=Depends(get_db)):
                     details_note,
                     follow_up_date,
                     account_exec,
+                    0.25,
                 ),
             )
 

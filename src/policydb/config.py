@@ -865,6 +865,27 @@ _DEFAULTS: dict[str, Any] = {
     "outlook_contact_sync_enabled": True,
     "outlook_contact_category": "PDB",
     "outlook_contact_allow_deletes": True,
+    # Phase 3 comprehensive crawl — folders matching this list get
+    # include_in_crawl=0 during folder discovery. Editable via the
+    # Settings > Email & Contacts > Email Sync Folders page. Matching
+    # is case-sensitive on the *leaf* name (the last path segment), so
+    # excluding "Archive" skips any folder whose leaf is "Archive"
+    # regardless of where it lives in the tree.
+    "outlook_excluded_folders": [
+        "Deleted Items",
+        "Junk Email",
+        "Drafts",
+        "Outbox",
+        "RSS Feeds",
+        "Sync Issues",
+        "Clutter",
+    ],
+    # First-run crawl horizon for Phase 3: how many days of history to
+    # pull on the very first sync after folder discovery. Subsequent
+    # syncs are incremental via outlook_folder_sync.last_synced_at and
+    # aren't affected by this number. 14 days is the recommended anchor —
+    # smaller = faster first run, larger = more historical catch-up.
+    "outlook_first_run_days": 14,
     "freemail_domains": [
         "gmail.com", "outlook.com", "yahoo.com", "hotmail.com",
         "aol.com", "icloud.com", "live.com", "msn.com", "me.com",

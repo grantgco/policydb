@@ -2062,6 +2062,24 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         conn.commit()
         logger.info("Migration 152: added issue_scratchpad table")
 
+    if 153 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "153_outlook_folder_sync.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (153, "Add outlook_folder_sync table for comprehensive email crawl (Phase 3)"),
+        )
+        conn.commit()
+        logger.info("Migration 153: added outlook_folder_sync table")
+
+    if 154 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "154_outlook_message_identity.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (154, "Add outlook_conversation_id + outlook_internet_message_id to activity_log and inbox"),
+        )
+        conn.commit()
+        logger.info("Migration 154: added outlook_conversation_id + outlook_internet_message_id columns")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 

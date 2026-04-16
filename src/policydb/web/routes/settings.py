@@ -63,6 +63,7 @@ EDITABLE_LISTS: dict[str, str] = {
     "freemail_domains": "Freemail Domains (Skip for Client Matching)",
     "internal_email_domains": "Internal Email Domains (Skip for Client Matching)",
     "automated_email_prefixes": "Automated Email Prefixes (Skip for Contact Capture)",
+    "outlook_excluded_folders": "Outlook Folders — Exclude from Crawl",
     "relationship_risk_levels": "Relationship Risk Levels",
     "risk_review_prompt_categories": "Risk Review Prompt Categories",
     "import_source_names": "Import Source Names",
@@ -246,6 +247,19 @@ def _build_tab_context(tab: str, conn) -> dict:
         ctx["email_subject_request"] = cfg.get("email_subject_request", "")
         ctx["email_subject_request_all"] = cfg.get("email_subject_request_all", "")
         ctx["email_subject_rfi_notify"] = cfg.get("email_subject_rfi_notify", "")
+        # Phase 3 email crawl: folder inventory for the Email Sync Folders card
+        try:
+            folder_rows = conn.execute(
+                """SELECT folder_path, folder_kind, include_in_crawl,
+                          last_synced_at, message_count, match_count, last_error
+                   FROM outlook_folder_sync
+                   ORDER BY folder_path"""
+            ).fetchall()
+            ctx["outlook_folders"] = [dict(r) for r in folder_rows]
+        except Exception:
+            # Table may not exist yet on very old installs; degrade gracefully.
+            ctx["outlook_folders"] = []
+        ctx["outlook_first_run_days"] = cfg.get("outlook_first_run_days", 14)
 
     elif tab == "data-health":
         ctx["data_health_threshold"] = cfg.get("data_health_threshold", 85)
@@ -430,6 +444,88 @@ def save_email_subject(key: str = Form(...), value: str = Form(...)):
         cfg.save_config(full)
         cfg.reload_config()
     return HTMLResponse('<span class="text-green-600 text-xs">Saved</span>')
+
+
+# ── Phase 3: Email Sync Folders ─────────────────────────────────────────────
+
+def _render_folder_rows(request: Request, conn) -> HTMLResponse:
+    """Return the HTML fragment for the folder list table body.
+
+    Used as the response to both discover and toggle — the caller refreshes
+    just the folder list portion of the Email Sync Folders card via HTMX.
+    """
+    rows = conn.execute(
+        """SELECT folder_path, folder_kind, include_in_crawl,
+                  last_synced_at, message_count, match_count, last_error
+           FROM outlook_folder_sync
+           ORDER BY folder_path"""
+    ).fetchall()
+    return templates.TemplateResponse(
+        "settings/_email_sync_folders_rows.html",
+        {
+            "request": request,
+            "outlook_folders": [dict(r) for r in rows],
+        },
+    )
+
+
+@router.post("/email-sync/discover", response_class=HTMLResponse)
+def email_sync_discover(request: Request, conn=Depends(get_db)):
+    """Walk the Outlook folder tree and persist the result into outlook_folder_sync.
+
+    Safe to re-run — existing folders get their kind/exclusion status refreshed
+    while preserving any accumulated crawl state (last_synced_at, counts).
+    """
+    from policydb.outlook import discover_folders, is_outlook_available
+    from policydb.email_sync import upsert_discovered_folders
+
+    if not is_outlook_available():
+        return HTMLResponse(
+            '<div class="text-xs text-red-600 p-2 bg-red-50 rounded border border-red-200">'
+            'Outlook is not running. Please open Legacy Outlook and try again.</div>',
+            status_code=503,
+        )
+
+    result = discover_folders()
+    if not result.get("ok"):
+        return HTMLResponse(
+            f'<div class="text-xs text-red-600 p-2 bg-red-50 rounded border border-red-200">'
+            f'Discovery failed: {result.get("error", "unknown error")}</div>',
+            status_code=500,
+        )
+
+    folders = result.get("folders", [])
+    stats = upsert_discovered_folders(conn, folders)
+
+    toast = (
+        f'<div class="text-xs text-green-700 p-2 bg-green-50 rounded border border-green-200 mb-2">'
+        f'Discovered {stats["discovered"]} folders '
+        f'(inserted {stats["inserted"]}, updated {stats["updated"]}, '
+        f'excluded {stats["excluded"]})</div>'
+    )
+
+    rows_response = _render_folder_rows(request, conn)
+    rows_html = rows_response.body.decode("utf-8") if hasattr(rows_response, "body") else ""
+    return HTMLResponse(toast + rows_html)
+
+
+@router.post("/email-sync/folder-toggle", response_class=HTMLResponse)
+def email_sync_folder_toggle(
+    request: Request,
+    folder_path: str = Form(...),
+    include: int = Form(...),
+    conn=Depends(get_db),
+):
+    """Flip include_in_crawl for a single folder. Called from the settings UI toggle."""
+    include_val = 1 if include else 0
+    conn.execute(
+        """UPDATE outlook_folder_sync
+           SET include_in_crawl = ?, updated_at = datetime('now')
+           WHERE folder_path = ?""",
+        (include_val, folder_path),
+    )
+    conn.commit()
+    return _render_folder_rows(request, conn)
 
 
 def _sync_readiness_on_add(key: str, item: str) -> None:

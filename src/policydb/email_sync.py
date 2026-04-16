@@ -21,6 +21,45 @@ logger = logging.getLogger(__name__)
 _REF_TAG_RE = re.compile(r'\[PDB:([^\]]+)\]')
 _HTML_TAG_RE = re.compile(r'<[^>]+>')
 
+# Subject keywords that signal formal template emails. These flows involve
+# more prep/review than a plain reply — a loss run request, binding
+# instructions, or a submission letter legitimately takes 15+ minutes to
+# compose, review, and send. Kept lowercase and matched via `in` after
+# lowercasing the subject.
+_FORMAL_EMAIL_KEYWORDS = (
+    "loss run", "loss runs", "lossrun",
+    "binding", "bind order", "bind instructions",
+    "submission", "quote request", "quote requested",
+    "application", "renewal application",
+    "marketing letter", "broker of record",
+)
+
+
+def _tiered_email_hours(direction: str, subject: str | None = None) -> float:
+    """Return a realistic default duration_hours estimate for an imported email.
+
+    These are heuristic anchors — they'll be wrong sometimes, but they're
+    always more honest than the flat 0.1h we used to assign to every email
+    regardless of direction or content. Users review and correct via the
+    upcoming Timesheet Review page.
+
+    Tiers:
+      0.25h — formal templates (loss run, submission, binding, etc.).
+              These involve meaningful prep and review work.
+      0.15h — outbound compose. Writing an email takes real time.
+      0.10h — flagged inbound. User explicitly flagged = worth thinking about.
+      0.05h — routine inbound. Quick read, no reply required.
+    """
+    subj = (subject or "").lower()
+    if any(kw in subj for kw in _FORMAL_EMAIL_KEYWORDS):
+        return 0.25
+    if direction == "sent":
+        return 0.15
+    if direction == "flagged":
+        return 0.10
+    # Default: plain received email
+    return 0.05
+
 # Default automated/noreply local-part prefixes — overridable via
 # cfg.get("automated_email_prefixes"). Match is anchored on local part.
 _DEFAULT_AUTOMATED_PREFIXES = (
@@ -28,6 +67,75 @@ _DEFAULT_AUTOMATED_PREFIXES = (
     "mailer-daemon", "postmaster", "bounce", "bounces", "notification", "notifications",
     "alert", "alerts", "automated", "system", "info", "support", "newsletter",
 )
+
+
+def upsert_discovered_folders(
+    conn: sqlite3.Connection,
+    folders: list[dict],
+) -> dict:
+    """Persist a folder-discovery result into the outlook_folder_sync table.
+
+    Each entry in ``folders`` must have ``path`` and ``kind``. Rows are
+    upserted by ``folder_path``: newly discovered folders are inserted,
+    existing rows get their ``folder_kind`` refreshed but crawl state
+    (``last_synced_at``, ``last_message_seen``, counts) is preserved so
+    re-running discovery never loses incremental sync progress.
+
+    The ``include_in_crawl`` flag is computed from the current
+    ``outlook_excluded_folders`` config list — matching is done on the
+    leaf name (last segment of the slash-delimited path). System kinds
+    (``system``, ``drafts``) are always excluded regardless of config.
+
+    Returns stats dict:
+        {"discovered": N, "inserted": K, "updated": M, "excluded": X}
+    """
+    excluded_names = {n.strip() for n in cfg.get("outlook_excluded_folders", []) if n}
+    stats = {"discovered": len(folders), "inserted": 0, "updated": 0, "excluded": 0}
+
+    for f in folders:
+        path = (f.get("path") or "").strip()
+        kind = (f.get("kind") or "custom").strip()
+        if not path:
+            continue
+        leaf = path.rsplit("/", 1)[-1]
+        # Hard excludes: system-kind folders never crawl, drafts never crawl
+        if kind in ("system", "drafts"):
+            include = 0
+        elif leaf in excluded_names:
+            include = 0
+        else:
+            include = 1
+
+        if include == 0:
+            stats["excluded"] += 1
+
+        # Upsert: insert with default crawl state, or update kind + include
+        # flag while preserving counts and last_synced_at.
+        existing = conn.execute(
+            "SELECT 1 FROM outlook_folder_sync WHERE folder_path = ?",
+            (path,),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """UPDATE outlook_folder_sync
+                   SET folder_kind = ?,
+                       include_in_crawl = ?,
+                       updated_at = datetime('now')
+                   WHERE folder_path = ?""",
+                (kind, include, path),
+            )
+            stats["updated"] += 1
+        else:
+            conn.execute(
+                """INSERT INTO outlook_folder_sync
+                   (folder_path, folder_kind, include_in_crawl)
+                   VALUES (?, ?, ?)""",
+                (path, kind, include),
+            )
+            stats["inserted"] += 1
+
+    conn.commit()
+    return stats
 
 
 def _is_automated_sender(address: str) -> bool:
@@ -606,7 +714,7 @@ def _create_or_enrich_activity(
             sender,
             recipients,
             email_direction,
-            0.1,
+            _tiered_email_hours(email_direction, subject),
         ),
     )
     conn.commit()
@@ -767,13 +875,16 @@ def _run_thread_inheritance(
         snippet_lines = [l for l in content_lines[4:] if l.strip()]
         snippet = "\n".join(snippet_lines)[:5000]
 
+        # Thread-inherited emails are always inbound (received). Tiered
+        # hours apply the same way — a thread full of "loss run" replies
+        # still represents real work, not 0.1h flat.
         conn.execute(
             """INSERT INTO activity_log
                (activity_date, client_id, policy_id, program_id, activity_type, subject,
                 details, contact_person, contact_id, source, outlook_message_id,
                 email_snippet, issue_id, follow_up_done,
                 email_from, email_to, email_direction, duration_hours)
-               VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, 'thread_inherit', ?, ?, ?, 1, ?, ?, ?, 0.1)""",
+               VALUES (?, ?, ?, ?, 'Email', ?, ?, ?, ?, 'thread_inherit', ?, ?, ?, 1, ?, ?, ?, ?)""",
             (
                 email_date,
                 inherited_match["client_id"],
@@ -789,6 +900,7 @@ def _run_thread_inheritance(
                 sender,
                 email_to,
                 "received",
+                _tiered_email_hours("received", subject),
             ),
         )
 

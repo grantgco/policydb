@@ -41,6 +41,32 @@
     </div>
   </div>
 
+  <div class="card p-5" id="section-email-sync-folders">
+    <div class="flex items-start justify-between mb-2">
+      <div>
+        <h2 class="font-semibold text-gray-900 text-sm">Email Sync Folders</h2>
+        <p class="text-xs text-gray-400 mt-0.5">
+          Comprehensive email crawl scans every folder marked <span class="font-mono bg-green-100 text-green-700 px-1 rounded">ON</span>. Folders matching the exclusion list below (plus system folders) are skipped automatically on discovery.
+          First-run horizon: <strong>{{ outlook_first_run_days }} days</strong>.
+        </p>
+      </div>
+      <button type="button"
+              hx-post="/settings/email-sync/discover"
+              hx-target="#email-sync-folder-rows"
+              hx-swap="innerHTML"
+              hx-indicator="#email-sync-spinner"
+              class="bg-marsh hover:bg-marsh-dark text-white text-xs font-medium px-3 py-1.5 rounded transition-colors whitespace-nowrap">
+        Run Discovery
+      </button>
+    </div>
+    <div id="email-sync-spinner" class="htmx-indicator text-xs text-gray-500 italic py-1">
+      Walking the Outlook folder tree…
+    </div>
+    <div id="email-sync-folder-rows" class="mt-2">
+      {% include "settings/_email_sync_folders_rows.html" %}
+    </div>
+  </div>
+
   <div class="border-t border-gray-200 pt-6 mt-2">
     <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">Dropdown Lists</p>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
