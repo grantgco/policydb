@@ -1673,7 +1673,15 @@ document.addEventListener('keydown', function(e) {
   window.showToast = showToast;
 
   // Search Outlook for a record + relatives. Called from _search_outlook_btn.html.
-  async function searchOutlookForRecord(btn, mode) {
+  // Shift-click = mode='client' → sweep every message tagged to the client
+  // (the CN umbrella), regardless of which sub-record you launched from.
+  async function searchOutlookForRecord(btn, evtOrMode) {
+    var mode;
+    if (typeof evtOrMode === 'string') {
+      mode = evtOrMode;
+    } else if (evtOrMode && evtOrMode.shiftKey) {
+      mode = 'client';
+    }
     mode = mode || 'wide';
     var entityType = btn.dataset.entityType;
     var entityId = btn.dataset.entityId;
@@ -1694,7 +1702,8 @@ document.addEventListener('keydown', function(e) {
       var count = body.tokens ? body.tokens.length : 0;
       var msg = body.message || '';
       if (body.status === 'searched') {
-        msg = 'Searched Outlook for ' + count + ' related tag' + (count === 1 ? '' : 's') + '.';
+        var scope = mode === 'client' ? 'client-wide' : 'record';
+        msg = 'Searched Outlook (' + scope + ') for ' + count + ' tag' + (count === 1 ? '' : 's') + '.';
       }
       if (body.truncated) {
         msg += ' Showing ' + count + ' of ' + body.total_available + '.';

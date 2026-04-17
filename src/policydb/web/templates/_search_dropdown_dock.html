@@ -27,10 +27,11 @@
         </span>
         <span class="dock-tag">[PDB:{{ ref }}]</span>
       </div>
-      <button class="dock-action" type="button" title="Search Outlook"
+      <button class="dock-action" type="button"
+              title="Search Outlook — shift-click to search all correspondence for the client"
               data-entity-type="{% if t == 'clients' %}client{% elif t == 'policies' %}policy{% elif t == 'issues' %}issue{% elif t == 'programs' %}program{% endif %}"
               data-entity-id="{% if t == 'clients' %}{{ r.id }}{% elif t == 'policies' %}{{ r.policy_uid }}{% elif t == 'issues' %}{{ r.issue_uid }}{% elif t == 'programs' %}{{ r.program_uid }}{% endif %}"
-              onclick="event.stopPropagation(); searchOutlookForRecord(this);">🔍</button>
+              onclick="event.stopPropagation(); searchOutlookForRecord(this, event);">🔍</button>
       <a class="dock-open"
          href="{% if t == 'clients' %}/clients/{{ r.id }}{% elif t == 'policies' %}/policies/{{ r.policy_uid }}/edit{% elif t == 'issues' %}/issues/{{ r.issue_uid }}{% elif t == 'programs' %}/clients/{{ r.client_id }}/programs/{{ r.program_uid }}{% endif %}"
          target="_blank"

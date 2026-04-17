@@ -10,6 +10,17 @@ Informed by the `[PDB:...]` tag format produced by `utils.build_ref_tag()`:
 So this module emits BOTH dashed and undashed forms for policies/programs
 (to catch natural-text mentions and compound-tag mentions), verbatim forms
 for issues/CN, and skips projects' own token in favor of their children.
+
+Mode semantics:
+    narrow — self only (e.g. just POL-042 / POL042).
+    wide   — self + immediate relatives (issues under a policy; policies +
+             issues under a program/project/client). Does NOT include the
+             client CN for sub-client entities — the CN would OR-match
+             every message about the client and drown the record-specific
+             results.
+    client — client CN only. Escape hatch to sweep every message tagged
+             to the client, regardless of which sub-record you launched
+             from.
 """
 from __future__ import annotations
 
@@ -153,15 +164,13 @@ def _walk_policy(
     if mode == "narrow":
         return policy_tokens
 
-    client_row = conn.execute(
-        "SELECT cn_number FROM clients WHERE id = ?", (row["client_id"],)
-    ).fetchone()
-    cn_tokens = _cn_tokens(
-        client_row["cn_number"] if client_row else None, row["client_id"]
-    )
-
     if mode == "client":
-        return cn_tokens
+        client_row = conn.execute(
+            "SELECT cn_number FROM clients WHERE id = ?", (row["client_id"],)
+        ).fetchone()
+        return _cn_tokens(
+            client_row["cn_number"] if client_row else None, row["client_id"]
+        )
 
     tokens: list[str] = list(policy_tokens)
     for r in conn.execute(
@@ -171,7 +180,6 @@ def _walk_policy(
         (row["id"],),
     ):
         tokens.extend(_issue_tokens(r["issue_uid"]))
-    tokens.extend(cn_tokens)
     return tokens
 
 
@@ -204,12 +212,6 @@ def _walk_issue(
         ).fetchone()
         if pol and pol["policy_uid"]:
             tokens.extend(_policy_tokens(pol["policy_uid"]))
-    cli = conn.execute(
-        "SELECT cn_number FROM clients WHERE id = ?", (row["client_id"],)
-    ).fetchone()
-    tokens.extend(
-        _cn_tokens(cli["cn_number"] if cli else None, row["client_id"])
-    )
     return tokens
 
 
@@ -222,16 +224,15 @@ def _walk_project(
     ).fetchone()
     if row is None:
         raise KeyError(f"project {project_id} not found")
-    cli = conn.execute(
-        "SELECT cn_number FROM clients WHERE id = ?", (row["client_id"],)
-    ).fetchone()
-    cn_tokens = _cn_tokens(
-        cli["cn_number"] if cli else None, row["client_id"]
-    )
 
     if mode == "narrow" or mode == "client":
         # Projects have no own searchable token → fall back to client CN.
-        return cn_tokens
+        cli = conn.execute(
+            "SELECT cn_number FROM clients WHERE id = ?", (row["client_id"],)
+        ).fetchone()
+        return _cn_tokens(
+            cli["cn_number"] if cli else None, row["client_id"]
+        )
 
     tokens: list[str] = []
     for r in conn.execute(
@@ -247,7 +248,6 @@ def _walk_project(
         (pid,),
     ):
         tokens.extend(_policy_tokens(r["policy_uid"]))
-    tokens.extend(cn_tokens)
     return tokens
 
 
@@ -266,15 +266,13 @@ def _walk_program(
     if mode == "narrow":
         return program_tokens
 
-    cli = conn.execute(
-        "SELECT cn_number FROM clients WHERE id = ?", (row["client_id"],)
-    ).fetchone()
-    cn_tokens = _cn_tokens(
-        cli["cn_number"] if cli else None, row["client_id"]
-    )
-
     if mode == "client":
-        return cn_tokens
+        cli = conn.execute(
+            "SELECT cn_number FROM clients WHERE id = ?", (row["client_id"],)
+        ).fetchone()
+        return _cn_tokens(
+            cli["cn_number"] if cli else None, row["client_id"]
+        )
 
     tokens: list[str] = list(program_tokens)
     # Member policies: policies.program_id is a direct FK (NO junction table).
@@ -322,7 +320,6 @@ def _walk_program(
             member_policy_ids,
         ):
             tokens.extend(_policy_tokens(r["policy_uid"]))
-    tokens.extend(cn_tokens)
     return tokens
 
 

@@ -6,8 +6,8 @@
         class="btn-secondary text-xs no-print inline-flex items-center gap-1"
         data-entity-type="{{ entity_type }}"
         data-entity-id="{{ entity_id }}"
-        onclick="searchOutlookForRecord(this)"
-        title="Find all correspondence about this {{ entity_type }} and its relatives (record + client + related policies/issues)">
+        onclick="searchOutlookForRecord(this, event)"
+        title="Find correspondence about this {{ entity_type }} and its direct relatives. Shift-click to search all correspondence for the client.">
   <span>🔍</span>
   <span>Search Outlook</span>
 </button>

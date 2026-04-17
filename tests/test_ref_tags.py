@@ -83,11 +83,12 @@ def test_wide_search_client_includes_all_relatives(seeded):
 
 def test_wide_search_policy(seeded):
     result = build_wide_search(seeded["conn"], "policy", "POL-042", mode="wide")
-    # Self + linked issue + client CN
+    # Self + linked issue. Client CN is intentionally excluded — it would
+    # OR-match every message about the client and drown the policy results.
     assert "POL-042" in result.tokens
     assert "POL042" in result.tokens
     assert "ISS-2026-007" in result.tokens
-    assert "CN122333627" in result.tokens
+    assert "CN122333627" not in result.tokens
     # Other policy POL-043 NOT included when searching from POL-042
     assert "POL-043" not in result.tokens
 
@@ -99,14 +100,37 @@ def test_wide_search_issue(seeded):
     assert result.tokens[0] == "ISS-2026-007"
     assert "POL-042" in result.tokens
     assert "POL042" in result.tokens
-    assert "CN122333627" in result.tokens
+    # CN is out of wide — use mode="client" to sweep all client correspondence.
+    assert "CN122333627" not in result.tokens
 
 
 def test_wide_search_program(seeded):
     result = build_wide_search(seeded["conn"], "program", "PGM-3", mode="wide")
     assert "PGM-3" in result.tokens
     assert "PGM3" in result.tokens
-    assert "CN122333627" in result.tokens
+    assert "CN122333627" not in result.tokens
+
+
+def test_client_mode_policy_returns_cn_only(seeded):
+    """Shift-click escape hatch: mode='client' from a policy sweeps all client correspondence."""
+    result = build_wide_search(
+        seeded["conn"], "policy", "POL-042", mode="client"
+    )
+    assert result.tokens == ["CN122333627"]
+
+
+def test_client_mode_issue_returns_cn_only(seeded):
+    result = build_wide_search(
+        seeded["conn"], "issue", "ISS-2026-007", mode="client"
+    )
+    assert result.tokens == ["CN122333627"]
+
+
+def test_client_mode_program_returns_cn_only(seeded):
+    result = build_wide_search(
+        seeded["conn"], "program", "PGM-3", mode="client"
+    )
+    assert result.tokens == ["CN122333627"]
 
 
 def test_narrow_mode_issue(seeded):
@@ -120,13 +144,6 @@ def test_narrow_mode_issue(seeded):
 def test_narrow_mode_policy(seeded):
     result = build_wide_search(seeded["conn"], "policy", "POL-042", mode="narrow")
     assert result.tokens == ["POL-042", "POL042"]
-
-
-def test_client_mode_collapses_to_cn(seeded):
-    result = build_wide_search(
-        seeded["conn"], "policy", "POL-042", mode="client"
-    )
-    assert result.tokens == ["CN122333627"]
 
 
 def test_truncation(seeded):

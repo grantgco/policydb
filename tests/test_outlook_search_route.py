@@ -58,9 +58,31 @@ def test_search_policy_returns_query_and_tokens(client):
     assert body["status"] == "searched"
     assert "POL-042" in body["tokens"]
     assert "POL042" in body["tokens"]
-    assert "CN122333627" in body["tokens"]
+    # Wide mode from a policy no longer includes the client CN — it would
+    # OR-match every message about the client and drown policy results.
+    # Use mode="client" to sweep all client correspondence.
+    assert "CN122333627" not in body["tokens"]
     assert body["truncated"] is False
     assert body["query"].startswith('"')
+
+
+def test_search_policy_in_client_mode_returns_cn_only(client):
+    """Shift-click path: mode='client' from a policy returns only the CN token."""
+    with patch(
+        "policydb.outlook.trigger_search",
+        return_value={
+            "status": "searched",
+            "query": "",
+            "message": "Searched Outlook.",
+        },
+    ):
+        r = client.post(
+            "/outlook/search",
+            json={"entity_type": "policy", "entity_id": "POL-042", "mode": "client"},
+        )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["tokens"] == ["CN122333627"]
 
 
 def test_search_missing_entity_returns_404(client):
