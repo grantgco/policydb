@@ -282,3 +282,14 @@ def test_range_exceeding_cap_returns_400(client):
 def test_range_below_cap_returns_200(client):
     resp = client.get("/timesheet/panel?kind=range&start=2026-04-01&end=2026-04-30")
     assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Task 16: GET /timesheet full-page wrapper
+# ---------------------------------------------------------------------------
+
+def test_full_page_renders(client):
+    resp = client.get("/timesheet")
+    assert resp.status_code == 200
+    assert "timesheet-panel" in resp.text
+    assert "<html" in resp.text.lower()

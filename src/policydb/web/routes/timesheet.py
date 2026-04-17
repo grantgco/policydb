@@ -257,3 +257,10 @@ def delete_activity(activity_id: int, conn=Depends(get_db)):
     conn.execute("DELETE FROM activity_log WHERE id=?", (activity_id,))
     conn.commit()
     return Response(status_code=204)
+
+
+@router.get("", response_class=HTMLResponse)
+def get_full_page(request: Request):
+    return templates.TemplateResponse(
+        "timesheet/full_page.html", {"request": request}
+    )
