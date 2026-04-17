@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from policydb import config as cfg
 from policydb.db import get_connection
@@ -62,3 +62,20 @@ def get_panel(
         "timesheet/_panel.html",
         {"request": request, "payload": payload},
     )
+
+
+@router.post("/activity/{activity_id}/review")
+def post_review(activity_id: int, conn=Depends(get_db)):
+    row = conn.execute(
+        "SELECT id FROM activity_log WHERE id=?", (activity_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, "Activity not found")
+    conn.execute(
+        """UPDATE activity_log
+           SET reviewed_at = datetime('now')
+           WHERE id = ? AND reviewed_at IS NULL""",
+        (activity_id,),
+    )
+    conn.commit()
+    return Response(status_code=204)
