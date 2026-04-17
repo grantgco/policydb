@@ -1,4 +1,4 @@
-<tr id="renew-row-{{ p.policy_uid }}" class="hover:bg-gray-50 text-xs">
+<tr id="renew-row-{{ p.policy_uid }}" data-row-id="policy:{{ p.policy_uid }}" class="hover:bg-gray-50 text-xs">
   <td class="px-2 py-1.5 w-8">
     <input type="checkbox" class="renewal-check rounded border-gray-300" value="{{ p.policy_uid }}"
       onchange="updateRenewalBulkBar()">

@@ -12,7 +12,7 @@
         <button type="button" data-pc-sort="coverage" class="px-1.5 py-0.5 rounded hover:bg-gray-100">Coverages</button>
       </div>
       <button type="button"
-        onclick="copyPolicyTable('/clients/{{ client.id }}/placement/copy-table', this)"
+        onclick="copyPolicyTable('/clients/{{ client.id }}/placement/copy-table', this, '#placement-list')"
         class="text-xs text-gray-400 hover:text-marsh"
         title="Copy placement touchpoints table to clipboard">Copy Table</button>
     </div>
@@ -23,6 +23,7 @@
     {% set active_count = c.policies | rejectattr('is_archived') | list | length %}
     {% set total_count = c.policies | length %}
     <div class="placement-row px-5 py-3"
+         data-row-id="{{ c.id }}"
          data-name="{{ (c.name or '') | lower }}"
          data-org="{{ (c.organization or '') | lower }}"
          data-coverage-count="{{ active_count }}">
