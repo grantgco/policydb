@@ -200,7 +200,7 @@ def build_wide_search(
 | Record type | Stored form | In compound `[PDB:...]` tag | Tokens to search for |
 |---|---|---|---|
 | Policy | `POL-042` | `POL042` (dash stripped) | **both** `POL-042` and `POL042` |
-| Program | `PRG-3` | `PRG3` (dash stripped) | **both** `PRG-3` and `PRG3` |
+| Program | `PGM-3` | `PGM3` (dash stripped) | **both** `PGM-3` and `PGM3` |
 | Issue | `ISS-2026-001` | `ISS-2026-001` (verbatim) | `ISS-2026-001` |
 | Client CN | `122333627` | `CN122333627` | `CN122333627` |
 | Project | (internal ID, e.g. `5`) | `L5` | **skipped** — `L5` alone is too ambiguous to search |
@@ -215,11 +215,11 @@ Ordered by specificity (most specific first, so truncation drops the broadest to
 
 | Entity | Relatives walked (in order) |
 |---|---|
-| **Client** | all ISS for client → all POL → all PRG → self (CN) |
+| **Client** | all ISS for client → all POL → all PGM → self (CN) |
 | **Policy** | self (POL) → all ISS on this policy → client (CN) — parent PRJ not emitted (no searchable token) |
 | **Issue** | self (ISS) → linked POL → client (CN) — linked PRJ not emitted |
 | **Project** | all child ISS → all child POL → client (CN) — project itself not emitted |
-| **Program** | self (PRG) → all ISS on member policies → all member POL → client (CN) |
+| **Program** | self (PGM) → all ISS on member policies → all member POL → client (CN) |
 
 Each "relative walked" contributes its per-type tokens from the table above (so a policy walked contributes *two* tokens, `POL-042` and `POL042`).
 
