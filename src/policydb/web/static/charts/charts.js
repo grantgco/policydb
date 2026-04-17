@@ -137,10 +137,76 @@ var ChartNav = {
   bindKeys: function() {
     var self = this;
     document.addEventListener('keydown', function(e) {
-      // Don't navigate when typing in inputs
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+      // Don't navigate when typing in inputs or contenteditable fields
+      var t = e.target;
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT') return;
+      if (t.isContentEditable) return;
       if (e.key === 'ArrowLeft') self.prev();
       if (e.key === 'ArrowRight') self.next();
     });
+  }
+};
+
+/**
+ * Editable chart-title persistence.
+ * Storage key: chart_title.<client_id>.<chart_id>
+ * Falls back to "global" when no client scope is present (e.g. manual chart preview).
+ */
+var ChartTitle = {
+  _key: function(chartId) {
+    var area = document.getElementById('chart-display-area');
+    var clientId = area && area.dataset.clientId ? area.dataset.clientId : 'global';
+    return 'chart_title.' + clientId + '.' + chartId;
+  },
+
+  applySaved: function() {
+    document.querySelectorAll('.chart-title-editable').forEach(function(el) {
+      var page = el.closest('.chart-page');
+      if (!page) return;
+      var chartId = page.dataset.chart;
+      try {
+        var saved = localStorage.getItem(ChartTitle._key(chartId));
+        if (saved && saved.trim()) {
+          el.textContent = saved;
+          page.dataset.chartTitle = saved;
+          ChartTitle._updateSidebar(chartId, saved);
+        }
+      } catch (e) { /* localStorage unavailable */ }
+    });
+  },
+
+  _updateSidebar: function(chartId, newTitle) {
+    if (!window.ChartNav || !ChartNav.chartIds) return;
+    var idx = ChartNav.chartIds.indexOf(chartId);
+    if (idx < 0) return;
+    var navItem = document.querySelectorAll('.chart-nav-item')[idx];
+    if (!navItem) return;
+    // Sidebar items have a leading "<n>." span then a trailing text node with the title
+    var labelNode = navItem.lastChild;
+    if (labelNode && labelNode.nodeType === 3) {
+      labelNode.textContent = ' ' + newTitle;
+    }
+  },
+
+  save: function(el) {
+    var page = el.closest('.chart-page');
+    if (!page) return;
+    var chartId = page.dataset.chart;
+    var defaultTitle = el.dataset.defaultTitle || '';
+    var newTitle = (el.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!newTitle) {
+      newTitle = defaultTitle;
+      el.textContent = defaultTitle;
+    }
+    page.dataset.chartTitle = newTitle;
+    try {
+      var key = ChartTitle._key(chartId);
+      if (newTitle === defaultTitle) {
+        localStorage.removeItem(key);
+      } else {
+        localStorage.setItem(key, newTitle);
+      }
+    } catch (e) { /* localStorage unavailable */ }
+    ChartTitle._updateSidebar(chartId, newTitle);
   }
 };
