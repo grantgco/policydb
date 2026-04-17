@@ -258,3 +258,44 @@ def test_silent_clients_ignores_clients_without_work(tmp_db):
     names = {c["name"] for c in payload["flags"]["silent_clients"]}
     assert "Dormant Corp" not in names
     conn.close()
+
+
+def test_unreviewed_emails_count(tmp_db):
+    conn = get_connection(tmp_db)
+    from policydb.timesheet import build_timesheet_payload
+    cid = _seed_client(conn)
+
+    for _ in range(3):
+        _seed_activity(conn, client_id=cid, activity_date="2026-04-14",
+                       duration_hours=0.1, source="outlook_sync", reviewed_at=None)
+    for _ in range(2):
+        _seed_activity(conn, client_id=cid, activity_date="2026-04-14",
+                       duration_hours=0.1, source="outlook_sync",
+                       reviewed_at="2026-04-15T10:00:00")
+    _seed_activity(conn, client_id=cid, activity_date="2026-04-14",
+                   duration_hours=0.15, source="thread_inherit", reviewed_at=None)
+
+    payload = build_timesheet_payload(
+        conn, start=date(2026, 4, 13), end=date(2026, 4, 19),
+    )
+    assert payload["flags"]["unreviewed_emails"] == 4
+    conn.close()
+
+
+def test_null_hour_activities_count(tmp_db):
+    conn = get_connection(tmp_db)
+    from policydb.timesheet import build_timesheet_payload
+    cid = _seed_client(conn)
+
+    _seed_activity(conn, client_id=cid, activity_date="2026-04-14", duration_hours=None)
+    _seed_activity(conn, client_id=cid, activity_date="2026-04-15", duration_hours=None)
+    _seed_activity(conn, client_id=cid, activity_date="2026-04-14", duration_hours=1.0)
+    _seed_activity(conn, client_id=cid, activity_date="2026-04-15", duration_hours=0.5)
+    _seed_activity(conn, client_id=cid, activity_date="2026-04-16", duration_hours=2.0)
+
+    payload = build_timesheet_payload(
+        conn, start=date(2026, 4, 13), end=date(2026, 4, 19),
+    )
+    assert payload["flags"]["null_hour_activities"] == 2
+    assert payload["totals"]["flag_count"] >= 2
+    conn.close()

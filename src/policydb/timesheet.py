@@ -164,6 +164,28 @@ def build_timesheet_payload(
     silence_window = int(thresholds.get("silence_renewal_window_days", 30))
     silent_clients = _compute_silent_clients(conn, start, end, silence_window)
 
+    unreviewed_emails = conn.execute(
+        """SELECT COUNT(*) AS n FROM activity_log
+           WHERE reviewed_at IS NULL
+             AND source IN ('outlook_sync', 'thread_inherit')
+             AND activity_date BETWEEN ? AND ?""",
+        (start.isoformat(), end.isoformat()),
+    ).fetchone()["n"]
+
+    null_hour_activities = conn.execute(
+        """SELECT COUNT(*) AS n FROM activity_log
+           WHERE duration_hours IS NULL
+             AND activity_date BETWEEN ? AND ?""",
+        (start.isoformat(), end.isoformat()),
+    ).fetchone()["n"]
+
+    flag_count = (
+        len(low_days)
+        + len(silent_clients)
+        + (1 if unreviewed_emails else 0)
+        + (1 if null_hour_activities else 0)
+    )
+
     return {
         "range": {
             "start": start.isoformat(),
@@ -174,13 +196,13 @@ def build_timesheet_payload(
         "totals": {
             "total_hours": round(total_hours, 2),
             "activity_count": len(rows),
-            "flag_count": len(low_days) + len(silent_clients),
+            "flag_count": flag_count,
         },
         "flags": {
             "low_days": low_days,
             "silent_clients": silent_clients,
-            "unreviewed_emails": 0,
-            "null_hour_activities": 0,
+            "unreviewed_emails": unreviewed_emails,
+            "null_hour_activities": null_hour_activities,
         },
         "days": list(days_map.values()),
         "closeout": {"closed_at": None, "snapshot": None},
