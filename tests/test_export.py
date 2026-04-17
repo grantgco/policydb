@@ -7,6 +7,10 @@ import sqlite3
 import pytest
 
 from policydb.db import get_connection, init_db
+# Prime app import before any test reaches ``policydb.web.routes.attachments``
+# directly; otherwise ``attachments.py`` → ``policydb.web.app`` → attempt to
+# register the not-yet-loaded attachments router raises AttributeError.
+from policydb.web import app as _app  # noqa: F401
 from policydb.seed import run_seed
 from policydb.exporter import (
     export_schedule_md,
@@ -413,3 +417,99 @@ def test_build_client_rfi_zip_raises_when_no_bundles(seeded_db):
     db_path, client_id, conn = seeded_db
     with pytest.raises(ValueError):
         build_client_rfi_zip(conn, client_id)
+
+
+def test_build_client_rfi_zip_bundle_files_follow_shared_tab(
+    seeded_rfi_db, tmp_path, monkeypatch
+):
+    """When every item in a bundle maps to the same workbook tab, bundle-level
+    attachments (record_type='rfi_bundle') ride along into that same tab
+    instead of landing in a stray root-level RFI folder."""
+    import zipfile
+    from policydb.web.routes.attachments import build_client_rfi_zip
+
+    db_path, client_id, conn = seeded_rfi_db
+
+    # Both policies share the same location so every item collapses to
+    # one workbook tab: "Main Campus".
+    conn.execute("UPDATE policies SET project_name='Main Campus' WHERE policy_uid IN ('POL-001','POL-002')")
+
+    attachments_dir = tmp_path / ".policydb" / "files" / "attachments"
+    attachments_dir.mkdir(parents=True)
+    bundle_file = attachments_dir / "cover_letter.pdf"
+    bundle_file.write_bytes(b"%PDF-1.4 dummy")
+    monkeypatch.setattr(
+        "policydb.web.routes.attachments._ATTACHMENTS_DIR",
+        attachments_dir,
+    )
+
+    conn.execute(
+        """INSERT INTO attachments (uid, title, source, file_path, filename, file_size, mime_type, category)
+           VALUES ('ATT-BUN', 'Cover Letter', 'local', ?, 'cover_letter.pdf', 14, 'application/pdf', 'Correspondence')""",
+        (str(bundle_file),),
+    )
+    att_id = conn.execute("SELECT id FROM attachments WHERE uid='ATT-BUN'").fetchone()["id"]
+    # Attach to the bundle itself, not an item
+    conn.execute(
+        "INSERT INTO record_attachments (attachment_id, record_type, record_id) VALUES (?, 'rfi_bundle', 1)",
+        (att_id,),
+    )
+    conn.commit()
+
+    data, _, _ = build_client_rfi_zip(conn, client_id)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = zf.namelist()
+
+    cover = [n for n in names if n.endswith("cover_letter.pdf")]
+    assert len(cover) == 1
+    # Bundle file follows the shared tab and is clearly labeled as bundle-level
+    assert cover[0].startswith("Main Campus/")
+    assert "[Q1 Renewal Info] Bundle Files/" in cover[0]
+    # Nothing landed in a root-level RFI folder
+    assert not any(n.startswith("Q1 Renewal Info/") for n in names)
+
+
+def test_build_client_rfi_zip_bundle_files_fall_back_when_items_span_tabs(
+    seeded_rfi_db, tmp_path, monkeypatch
+):
+    """When a bundle's items map to more than one workbook tab, bundle-level
+    attachments fall back to a root-level RFI folder since there's no
+    single tab to anchor them to."""
+    import zipfile
+    from policydb.web.routes.attachments import build_client_rfi_zip
+
+    db_path, client_id, conn = seeded_rfi_db
+
+    # Split policies across two different locations → two tabs
+    conn.execute("UPDATE policies SET project_name='East Campus' WHERE policy_uid='POL-001'")
+    conn.execute("UPDATE policies SET project_name='West Campus' WHERE policy_uid='POL-002'")
+
+    attachments_dir = tmp_path / ".policydb" / "files" / "attachments"
+    attachments_dir.mkdir(parents=True)
+    bundle_file = attachments_dir / "org_chart.pdf"
+    bundle_file.write_bytes(b"%PDF-1.4 dummy")
+    monkeypatch.setattr(
+        "policydb.web.routes.attachments._ATTACHMENTS_DIR",
+        attachments_dir,
+    )
+
+    conn.execute(
+        """INSERT INTO attachments (uid, title, source, file_path, filename, file_size, mime_type, category)
+           VALUES ('ATT-SPAN', 'Org Chart', 'local', ?, 'org_chart.pdf', 14, 'application/pdf', 'Corporate')""",
+        (str(bundle_file),),
+    )
+    att_id = conn.execute("SELECT id FROM attachments WHERE uid='ATT-SPAN'").fetchone()["id"]
+    conn.execute(
+        "INSERT INTO record_attachments (attachment_id, record_type, record_id) VALUES (?, 'rfi_bundle', 1)",
+        (att_id,),
+    )
+    conn.commit()
+
+    data, _, _ = build_client_rfi_zip(conn, client_id)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = zf.namelist()
+
+    chart = [n for n in names if n.endswith("org_chart.pdf")]
+    assert len(chart) == 1
+    # Items span two tabs → fall back to root-level RFI folder
+    assert chart[0].startswith("Q1 Renewal Info/")

@@ -591,21 +591,25 @@ def build_client_rfi_zip(conn, client_id: int) -> tuple[bytes, str, int]:
     inside. Each item folder carries its source RFI label in brackets
     so the path still traces back to the bundle (matching the "RFI"
     column in the workbook). Bundle-level attachments (files attached
-    to the bundle itself rather than an item) sit in their own RFI
-    folder at the root.
+    to the bundle itself rather than an item) follow their bundle's
+    items to the same tab when every item shares one, so the ZIP stays
+    aligned with the workbook; otherwise they fall back to a root-level
+    RFI folder.
 
     Layout:
         Outstanding Requests.xlsx            ← multi-sheet workbook (one tab per program/location)
         {Program}/                           ← matches a workbook program tab
             [{RFI Label}] {NNN - description}/
                 ...item files...
+            [{RFI Label}] Bundle Files/      ← bundle-level files, when the bundle's items all share this tab
+                ...
         {Location}/                          ← matches a workbook location tab
             [{RFI Label}] {NNN - description}/
                 ...item files...
         Unassigned/                          ← items with neither program nor location
             ...
-        {RFI Label}/                         ← bundle-level files (only if present)
-            ...
+        {RFI Label}/                         ← bundle-level files when the bundle has no items
+            ...                                or when its items span multiple tabs
 
     Returns ``(zip_bytes, download_filename, total_files_written)``.
     Raises ``ValueError`` with a user-facing message if the client has no
@@ -664,7 +668,10 @@ def build_client_rfi_zip(conn, client_id: int) -> tuple[bytes, str, int]:
         except Exception as exc:
             logger.warning("Zip: failed to embed client xlsx for %s: %s", client_id, exc)
 
-        # Item-level files grouped by program/location to mirror workbook tabs
+        # Item-level files grouped by program/location to mirror workbook tabs.
+        # Also track which tabs each bundle's items land in so bundle-level
+        # files can follow them when the whole bundle maps to one tab.
+        bundle_tabs_by_id: dict[int, set[str]] = {}
         for item in items:
             i = dict(item)
             program = (i.get("program_name") or "").strip()
@@ -675,6 +682,7 @@ def build_client_rfi_zip(conn, client_id: int) -> tuple[bytes, str, int]:
                 tab_label = location
             else:
                 tab_label = "Unassigned"
+            bundle_tabs_by_id.setdefault(i["bundle_id"], set()).add(tab_label)
 
             rfi_label = bundle_label_by_id.get(i["bundle_id"]) or f"Request {i['bundle_id']}"
             desc = _friendly_folder_name(i.get("description") or "Item", max_len=50)
@@ -696,7 +704,9 @@ def build_client_rfi_zip(conn, client_id: int) -> tuple[bytes, str, int]:
                 _add_attachment_to_zip(zf, item_folder, dict(r), alloc)
             total_files += len(att_rows)
 
-        # Bundle-level files go into a per-RFI folder at the zip root
+        # Bundle-level files follow their items to the same workbook tab
+        # when every item shares one; otherwise they sit in a root-level
+        # RFI folder (bundle has no items, or items span multiple tabs).
         for b in bundles:
             direct_rows = conn.execute(
                 """SELECT a.*, ra.sort_order AS link_sort
@@ -708,7 +718,16 @@ def build_client_rfi_zip(conn, client_id: int) -> tuple[bytes, str, int]:
             ).fetchall()
             if not direct_rows:
                 continue
-            bundle_folder = f"{bundle_label_by_id[b['id']]}/"
+            rfi_label = bundle_label_by_id[b["id"]]
+            tabs = bundle_tabs_by_id.get(b["id"], set())
+            if len(tabs) == 1:
+                tab = next(iter(tabs))
+                bundle_folder = (
+                    f"{_friendly_folder_name(tab, max_len=60)}/"
+                    f"[{_friendly_folder_name(rfi_label, max_len=30)}] Bundle Files/"
+                )
+            else:
+                bundle_folder = f"{rfi_label}/"
             for r in direct_rows:
                 _add_attachment_to_zip(zf, bundle_folder, dict(r), alloc)
             total_files += len(direct_rows)
