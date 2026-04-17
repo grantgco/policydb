@@ -871,6 +871,7 @@ _DEFAULTS: dict[str, Any] = {
     "outlook_capture_category": "PDB",
     "outlook_skip_category": "Personal",
     "outlook_contact_sync_enabled": True,
+    "outlook_search_auto_paste": True,
     "outlook_contact_category": "PDB",
     "outlook_contact_allow_deletes": True,
     # Phase 3 comprehensive crawl — folders matching this list get

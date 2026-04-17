@@ -113,6 +113,12 @@
               <span>Enable contact push</span>
             </label>
             <label class="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
+              <input type="checkbox" name="search_auto_paste" value="1"
+                     {% if outlook_search_auto_paste %}checked{% endif %}
+                     class="rounded border-gray-300">
+              <span>Auto-paste search in Outlook</span>
+            </label>
+            <label class="flex items-center gap-1.5 cursor-pointer text-xs text-gray-600">
               <input type="checkbox" name="contact_allow_deletes" value="1"
                      {% if outlook_contact_allow_deletes %}checked{% endif %}
                      class="rounded border-gray-300">
