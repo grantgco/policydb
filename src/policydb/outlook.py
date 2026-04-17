@@ -111,6 +111,32 @@ def _escape_for_applescript(text: str) -> str:
     return text.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def _normalize_recipient_fields(email: dict) -> None:
+    """In-place: split comma-joined recipient strings into lists and populate
+    the backward-compatible ``recipients`` field as ``to + cc``.
+
+    AppleScript emits ``to_recipients`` and ``cc_recipients`` as comma-
+    separated strings. Older code paths / fallbacks may still carry a
+    pre-combined ``recipients`` string — we honor it as the TO list in
+    that case.
+    """
+    def _split(s) -> list[str]:
+        if isinstance(s, list):
+            return [x.strip() for x in s if x and str(x).strip()]
+        if isinstance(s, str):
+            return [p.strip() for p in s.split(",") if p.strip()]
+        return []
+
+    to_list = _split(email.get("to_recipients"))
+    cc_list = _split(email.get("cc_recipients"))
+    if not to_list and not cc_list and "recipients" in email:
+        # Legacy combined field — everything lands as TO.
+        to_list = _split(email.get("recipients"))
+    email["to_recipients"] = to_list
+    email["cc_recipients"] = cc_list
+    email["recipients"] = to_list + cc_list
+
+
 def create_draft(
     to: str,
     cc: list[str] | None = None,
@@ -261,10 +287,16 @@ on scanTree(f, folderPath, myDate, capLimit, depth)
                     end try
                     set msgDate to time sent of msg
                     set msgId to id of msg as text
-                    set recipList to ""
+                    set recipTo to ""
                     try
                         repeat with r in to recipients of msg
-                            set recipList to recipList & address of email address of r & ","
+                            set recipTo to recipTo & address of email address of r & ","
+                        end repeat
+                    end try
+                    set recipCc to ""
+                    try
+                        repeat with r in cc recipients of msg
+                            set recipCc to recipCc & address of email address of r & ","
                         end repeat
                     end try
                     set catList to ""
@@ -291,12 +323,13 @@ on scanTree(f, folderPath, myDate, capLimit, depth)
                     set msgSubject to my escJSON(msgSubject)
                     set msgSender to my escJSON(msgSender)
                     set msgContent to my escJSON(msgContent)
-                    set recipList to my escJSON(recipList)
+                    set recipTo to my escJSON(recipTo)
+                    set recipCc to my escJSON(recipCc)
                     set msgId to my escJSON(msgId)
                     set catList to my escJSON(catList)
                     set escFolder to my escJSON(folderPath)
                     set dateStr to (year of msgDate as text) & "-" & my padNum(month of msgDate as integer) & "-" & my padNum(day of msgDate) & "T" & my padNum(hours of msgDate) & ":" & my padNum(minutes of msgDate) & ":00"
-                    set acc's out to (acc's out) & "  {{\\"message_id\\": \\"" & msgId & "\\", \\"subject\\": \\"" & msgSubject & "\\", \\"sender\\": \\"" & msgSender & "\\", \\"recipients\\": \\"" & recipList & "\\", \\"date\\": \\"" & dateStr & "\\", \\"body_snippet\\": \\"" & msgContent & "\\", \\"folder\\": \\"" & escFolder & "\\", \\"categories\\": \\"" & catList & "\\"}},"
+                    set acc's out to (acc's out) & "  {{\\"message_id\\": \\"" & msgId & "\\", \\"subject\\": \\"" & msgSubject & "\\", \\"sender\\": \\"" & msgSender & "\\", \\"to_recipients\\": \\"" & recipTo & "\\", \\"cc_recipients\\": \\"" & recipCc & "\\", \\"date\\": \\"" & dateStr & "\\", \\"body_snippet\\": \\"" & msgContent & "\\", \\"folder\\": \\"" & escFolder & "\\", \\"categories\\": \\"" & catList & "\\"}},"
                 end if
             end repeat
         end try
@@ -357,8 +390,7 @@ end replaceText
         raw = re.sub(r',\s*\]', ']', raw)
         emails = json.loads(raw)
         for email in emails:
-            if isinstance(email.get("recipients"), str):
-                email["recipients"] = [r.strip() for r in email["recipients"].split(",") if r.strip()]
+            _normalize_recipient_fields(email)
             if isinstance(email.get("categories"), str):
                 email["categories"] = [c.strip() for c in email["categories"].split(",") if c.strip()]
             else:
@@ -425,14 +457,18 @@ tell application "Microsoft Outlook"
         end try
         set msgDate to time sent of msg
         set msgId to id of msg as text
-        -- Get recipients
-        set recipList to ""
+        -- Get recipients, keeping TO and CC separate so downstream can
+        -- tag them with distinct roles in activity_contacts.
+        set recipTo to ""
         try
             repeat with r in to recipients of msg
-                set recipList to recipList & address of email address of r & ","
+                set recipTo to recipTo & address of email address of r & ","
             end repeat
+        end try
+        set recipCc to ""
+        try
             repeat with r in cc recipients of msg
-                set recipList to recipList & address of email address of r & ","
+                set recipCc to recipCc & address of email address of r & ","
             end repeat
         end try
         -- Get body as plain text for ref tag matching
@@ -462,11 +498,12 @@ tell application "Microsoft Outlook"
         set msgSubject to my escJSON(msgSubject)
         set msgSender to my escJSON(msgSender)
         set msgContent to my escJSON(msgContent)
-        set recipList to my escJSON(recipList)
+        set recipTo to my escJSON(recipTo)
+        set recipCc to my escJSON(recipCc)
         set msgId to my escJSON(msgId)
         set catList to my escJSON(catList)
         set dateStr to (year of msgDate as text) & "-" & my padNum(month of msgDate as integer) & "-" & my padNum(day of msgDate) & "T" & my padNum(hours of msgDate) & ":" & my padNum(minutes of msgDate) & ":00"
-        set output to output & "  {{\\"message_id\\": \\"" & msgId & "\\", \\"subject\\": \\"" & msgSubject & "\\", \\"sender\\": \\"" & msgSender & "\\", \\"recipients\\": \\"" & recipList & "\\", \\"date\\": \\"" & dateStr & "\\", \\"body_snippet\\": \\"" & msgContent & "\\", \\"folder\\": \\"{esc_folder}\\", \\"categories\\": \\"" & catList & "\\"}},"
+        set output to output & "  {{\\"message_id\\": \\"" & msgId & "\\", \\"subject\\": \\"" & msgSubject & "\\", \\"sender\\": \\"" & msgSender & "\\", \\"to_recipients\\": \\"" & recipTo & "\\", \\"cc_recipients\\": \\"" & recipCc & "\\", \\"date\\": \\"" & dateStr & "\\", \\"body_snippet\\": \\"" & msgContent & "\\", \\"folder\\": \\"{esc_folder}\\", \\"categories\\": \\"" & catList & "\\"}},"
         if i < msgCount then set output to output & return
     end repeat
     set output to output & return & "]"
@@ -507,13 +544,8 @@ end replaceText
         # Clean up trailing commas before closing bracket
         raw = re.sub(r',\s*\]', ']', raw)
         emails = json.loads(raw)
-        # Split comma-separated strings into lists
         for email in emails:
-            if isinstance(email.get("recipients"), str):
-                email["recipients"] = [
-                    r.strip() for r in email["recipients"].split(",")
-                    if r.strip()
-                ]
+            _normalize_recipient_fields(email)
             if isinstance(email.get("categories"), str):
                 email["categories"] = [
                     c.strip() for c in email["categories"].split(",")
@@ -756,13 +788,16 @@ tell application "Microsoft Outlook"
         try
             set internetMsgId to internet message id of msg as text
         end try
-        set recipList to ""
+        set recipTo to ""
         try
             repeat with r in to recipients of msg
-                set recipList to recipList & address of email address of r & ","
+                set recipTo to recipTo & address of email address of r & ","
             end repeat
+        end try
+        set recipCc to ""
+        try
             repeat with r in cc recipients of msg
-                set recipList to recipList & address of email address of r & ","
+                set recipCc to recipCc & address of email address of r & ","
             end repeat
         end try
         set msgContent to ""
@@ -789,14 +824,15 @@ tell application "Microsoft Outlook"
         set msgSubject to my escJSON(msgSubject)
         set msgSender to my escJSON(msgSender)
         set msgContent to my escJSON(msgContent)
-        set recipList to my escJSON(recipList)
+        set recipTo to my escJSON(recipTo)
+        set recipCc to my escJSON(recipCc)
         set msgId to my escJSON(msgId)
         set convId to my escJSON(convId)
         set internetMsgId to my escJSON(internetMsgId)
         set catList to my escJSON(catList)
         set escFolder to my escJSON("{esc_path}")
         set dateStr to (year of msgDate as text) & "-" & my padNum(month of msgDate as integer) & "-" & my padNum(day of msgDate) & "T" & my padNum(hours of msgDate) & ":" & my padNum(minutes of msgDate) & ":00"
-        set output to output & "  {{\\"message_id\\": \\"" & msgId & "\\", \\"conversation_id\\": \\"" & convId & "\\", \\"internet_message_id\\": \\"" & internetMsgId & "\\", \\"subject\\": \\"" & msgSubject & "\\", \\"sender\\": \\"" & msgSender & "\\", \\"recipients\\": \\"" & recipList & "\\", \\"date\\": \\"" & dateStr & "\\", \\"body_snippet\\": \\"" & msgContent & "\\", \\"folder\\": \\"" & escFolder & "\\", \\"categories\\": \\"" & catList & "\\"}},"
+        set output to output & "  {{\\"message_id\\": \\"" & msgId & "\\", \\"conversation_id\\": \\"" & convId & "\\", \\"internet_message_id\\": \\"" & internetMsgId & "\\", \\"subject\\": \\"" & msgSubject & "\\", \\"sender\\": \\"" & msgSender & "\\", \\"to_recipients\\": \\"" & recipTo & "\\", \\"cc_recipients\\": \\"" & recipCc & "\\", \\"date\\": \\"" & dateStr & "\\", \\"body_snippet\\": \\"" & msgContent & "\\", \\"folder\\": \\"" & escFolder & "\\", \\"categories\\": \\"" & catList & "\\"}},"
         if i < msgCount then set output to output & return
     end repeat
     set output to output & return & "]"
@@ -860,11 +896,7 @@ end replaceText
         raw = re.sub(r',\s*\]', ']', raw)
         emails = json.loads(raw)
         for email in emails:
-            if isinstance(email.get("recipients"), str):
-                email["recipients"] = [
-                    r.strip() for r in email["recipients"].split(",")
-                    if r.strip()
-                ]
+            _normalize_recipient_fields(email)
             if isinstance(email.get("categories"), str):
                 email["categories"] = [
                     c.strip() for c in email["categories"].split(",")
