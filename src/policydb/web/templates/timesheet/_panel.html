@@ -1,0 +1,10 @@
+<div id="timesheet-panel" data-range-kind="{{ payload.range.kind }}">
+  <div class="mb-4">
+    <span class="text-sm text-stone-500">{{ payload.range.label }}</span>
+    <span class="ml-3 text-sm font-mono">{{ payload.totals.total_hours }}h</span>
+    <span class="ml-3 text-xs text-stone-500">
+      {{ payload.totals.activity_count }} activities · {{ payload.totals.flag_count }} flags
+    </span>
+  </div>
+  <!-- Day cards, flag strip, and closeout badge ship in Tasks 18-22 -->
+</div>
