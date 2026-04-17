@@ -96,3 +96,51 @@ def test_post_review_is_idempotent(client):
 def test_post_review_404_on_missing(client):
     resp = client.post("/timesheet/activity/999999/review")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Task 11: PATCH /activity/{id}
+# ---------------------------------------------------------------------------
+
+def test_patch_activity_updates_duration_hours(client):
+    aid = _make_activity(client, hours=0.1)
+    resp = client.patch(f"/timesheet/activity/{aid}",
+                        data={"duration_hours": "1.25"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert "total_hours" in body
+
+    from policydb.db import get_connection
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT duration_hours, reviewed_at FROM activity_log WHERE id=?",
+        (aid,),
+    ).fetchone()
+    # round-to-0.1 per feedback_hours_any_numeric: 1.25 -> 1.3
+    assert abs(float(row["duration_hours"]) - 1.3) < 0.001
+    assert row["reviewed_at"] is not None
+    conn.close()
+
+
+def test_patch_activity_updates_subject_and_type(client):
+    aid = _make_activity(client)
+    resp = client.patch(f"/timesheet/activity/{aid}",
+                        data={"subject": "New subject", "activity_type": "Call"})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+    from policydb.db import get_connection
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT subject, activity_type FROM activity_log WHERE id=?", (aid,)
+    ).fetchone()
+    assert row["subject"] == "New subject"
+    assert row["activity_type"] == "Call"
+    conn.close()
+
+
+def test_patch_activity_404_on_missing(client):
+    resp = client.patch("/timesheet/activity/999999",
+                        data={"duration_hours": "1.0"})
+    assert resp.status_code == 404

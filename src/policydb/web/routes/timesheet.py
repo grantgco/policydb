@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from policydb import config as cfg
 from policydb.db import get_connection
@@ -79,3 +79,79 @@ def post_review(activity_id: int, conn=Depends(get_db)):
     )
     conn.commit()
     return Response(status_code=204)
+
+
+def _round_to_tenth(raw: str) -> float | None:
+    """Accept any numeric input; round to nearest 0.1 (half-up). Per feedback_hours_any_numeric."""
+    import decimal
+    try:
+        return float(
+            decimal.Decimal(str(raw)).quantize(
+                decimal.Decimal("0.1"), rounding=decimal.ROUND_HALF_UP
+            )
+        )
+    except (TypeError, ValueError, decimal.InvalidOperation):
+        return None
+
+
+@router.patch("/activity/{activity_id}")
+def patch_activity(
+    activity_id: int,
+    duration_hours: str | None = Form(None),
+    subject: str | None = Form(None),
+    activity_type: str | None = Form(None),
+    details: str | None = Form(None),
+    conn=Depends(get_db),
+):
+    row = conn.execute(
+        "SELECT id, activity_date FROM activity_log WHERE id=?", (activity_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, "Activity not found")
+
+    updates: list[str] = []
+    params: list = []
+
+    if duration_hours is not None:
+        rounded = _round_to_tenth(duration_hours)
+        if rounded is None:
+            raise HTTPException(400, "duration_hours must be numeric")
+        updates.append("duration_hours=?")
+        params.append(rounded)
+
+    if subject is not None:
+        updates.append("subject=?")
+        params.append(subject.strip())
+
+    if activity_type is not None:
+        updates.append("activity_type=?")
+        params.append(activity_type.strip())
+
+    if details is not None:
+        updates.append("details=?")
+        params.append(details)
+
+    if not updates:
+        raise HTTPException(400, "No fields to update")
+
+    updates.append("reviewed_at=COALESCE(reviewed_at, datetime('now'))")
+    params.append(activity_id)
+
+    conn.execute(f"UPDATE activity_log SET {', '.join(updates)} WHERE id=?", params)
+    conn.commit()
+
+    day_total = conn.execute(
+        """SELECT COALESCE(SUM(duration_hours), 0) AS h
+           FROM activity_log WHERE activity_date=?""",
+        (row["activity_date"],),
+    ).fetchone()["h"]
+
+    formatted = (
+        f"{round(float(duration_hours), 2):g}" if duration_hours is not None else None
+    )
+
+    return JSONResponse({
+        "ok": True,
+        "formatted": formatted,
+        "total_hours": round(float(day_total), 2),
+    })
