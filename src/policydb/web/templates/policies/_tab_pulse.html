@@ -41,15 +41,20 @@
     </div>
   </div>
   {# Mark Reviewed button — inline HTMX, no page navigation #}
-  <div id="pulse-review-btn" class="shrink-0 no-print">
-    <button type="button"
-      hx-post="/review/policies/{{ policy.policy_uid }}/mark"
-      hx-vals='{"mark":"1"}'
-      hx-swap="none"
-      hx-on::after-request="if(event.detail.successful){var b=document.getElementById('pulse-review-badge');b.className='text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap bg-green-50 text-green-700 border border-green-200';b.textContent='Reviewed just now';this.outerHTML='<span class=&quot;text-[10px] text-green-600 font-semibold&quot;>&#10003; Reviewed</span>';}else{if(typeof showToast==='function')showToast('Review failed',false)}"
-      class="text-[10px] font-semibold px-3 py-1.5 rounded bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 transition-colors whitespace-nowrap">
-      Mark Reviewed
-    </button>
+  <div class="shrink-0 no-print flex items-center gap-2">
+    {% with entity_type="policy", entity_id=policy.policy_uid %}
+      {% include "_search_outlook_btn.html" %}
+    {% endwith %}
+    <div id="pulse-review-btn">
+      <button type="button"
+        hx-post="/review/policies/{{ policy.policy_uid }}/mark"
+        hx-vals='{"mark":"1"}'
+        hx-swap="none"
+        hx-on::after-request="if(event.detail.successful){var b=document.getElementById('pulse-review-badge');b.className='text-[10px] px-2 py-0.5 rounded-full font-medium whitespace-nowrap bg-green-50 text-green-700 border border-green-200';b.textContent='Reviewed just now';this.outerHTML='<span class=&quot;text-[10px] text-green-600 font-semibold&quot;>&#10003; Reviewed</span>';}else{if(typeof showToast==='function')showToast('Review failed',false)}"
+        class="text-[10px] font-semibold px-3 py-1.5 rounded bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 transition-colors whitespace-nowrap">
+        Mark Reviewed
+      </button>
+    </div>
   </div>
 </div>
 

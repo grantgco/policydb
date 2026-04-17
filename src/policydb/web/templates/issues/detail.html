@@ -206,6 +206,9 @@
                     title="Compose email about this issue">
               Compose Email
             </button>
+            {% with entity_type="issue", entity_id=issue.issue_uid %}
+              {% include "_search_outlook_btn.html" %}
+            {% endwith %}
             <button onclick="openLinkActivities()"
                     class="text-xs text-blue-600 border border-blue-200 rounded px-2 py-1 hover:bg-blue-50 transition-colors">
               + Link Activity
