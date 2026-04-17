@@ -15,7 +15,7 @@
 ## File Structure
 
 **Create:**
-- `src/policydb/migrations/160_timesheet_review.sql` — schema
+- `src/policydb/migrations/161_timesheet_review.sql` — schema
 - `src/policydb/timesheet.py` — `build_timesheet_payload()` + flag helpers
 - `src/policydb/web/routes/timesheet.py` — router
 - `src/policydb/web/templates/timesheet/_panel.html`
@@ -30,7 +30,7 @@
 - `tests/test_timesheet_routes.py`
 
 **Modify:**
-- `src/policydb/db.py` — wire migration 160 into `init_db()`
+- `src/policydb/db.py` — wire migration 161 into `init_db()`
 - `src/policydb/config.py` — add `timesheet_thresholds` dict to `_DEFAULTS`
 - `src/policydb/queries.py` — add `get_timesheet_badge()`
 - `src/policydb/web/app.py` — register timesheet router
@@ -53,10 +53,10 @@ Every task ends with a commit. Never `--no-verify`. Use full venv: `~/.policydb/
 
 ---
 
-### Task 1: Migration 160 — schema + db.py wiring
+### Task 1: Migration 161 — schema + db.py wiring
 
 **Files:**
-- Create: `src/policydb/migrations/160_timesheet_review.sql`
+- Create: `src/policydb/migrations/161_timesheet_review.sql`
 - Modify: `src/policydb/db.py` (after the migration 159 block; grep for `if 159 not in applied`)
 - Test: `tests/test_timesheet.py`
 
@@ -146,7 +146,7 @@ Expected: FAIL — either "no such table timesheet_closeouts" or "no such column
 
 - [ ] **Step 3: Write the migration SQL**
 
-Create `src/policydb/migrations/160_timesheet_review.sql`:
+Create `src/policydb/migrations/161_timesheet_review.sql`:
 
 ```sql
 -- Phase 4: Timesheet Review
@@ -179,13 +179,13 @@ In `src/policydb/db.py`, find the migration 159 block (`if 159 not in applied:`)
 
 ```python
     if 160 not in applied:
-        conn.executescript((_MIGRATIONS_DIR / "160_timesheet_review.sql").read_text())
+        conn.executescript((_MIGRATIONS_DIR / "161_timesheet_review.sql").read_text())
         conn.execute(
             "INSERT INTO schema_version (version, description) VALUES (?, ?)",
             (160, "Add activity_log.reviewed_at + timesheet_closeouts table (Phase 4 Timesheet Review)"),
         )
         conn.commit()
-        logger.info("Migration 160: added activity_log.reviewed_at + timesheet_closeouts")
+        logger.info("Migration 161: added activity_log.reviewed_at + timesheet_closeouts")
 ```
 
 - [ ] **Step 5: Run tests to verify they pass**
@@ -199,9 +199,9 @@ Expected: all four tests pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/policydb/migrations/160_timesheet_review.sql src/policydb/db.py tests/test_timesheet.py
+git add src/policydb/migrations/161_timesheet_review.sql src/policydb/db.py tests/test_timesheet.py
 git commit -m "$(cat <<'EOF'
-feat(timesheet): migration 160 — reviewed_at + timesheet_closeouts
+feat(timesheet): migration 161 — reviewed_at + timesheet_closeouts
 
 Phase 4 schema foundation. Adds activity_log.reviewed_at (partial
 index where NULL) plus a timesheet_closeouts table that captures the
@@ -3339,7 +3339,7 @@ If any of the above revealed a bug (missing CSS, broken HTMX target, etc.), fix 
 - Flag types (4) → Tasks 4 (low-day), 5 (silent), 6 (unreviewed + null-hour) ✓
 - Review model (auto + close-out) → Tasks 10, 11, 14 ✓
 - Layout (day cards, flag strip, badge, toggle) → Tasks 17, 18, 19, 20 ✓
-- Data model (migration 160) → Task 1 ✓
+- Data model (migration 161) → Task 1 ✓
 - Config keys → Tasks 2 + 23 ✓
 - Module + queries → Tasks 3-7 ✓
 - Routes → Tasks 9-16 ✓

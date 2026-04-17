@@ -19,14 +19,14 @@ def tmp_db(tmp_path, monkeypatch):
     return db_path
 
 
-def test_migration_160_adds_reviewed_at_column(tmp_db):
+def test_migration_161_adds_reviewed_at_column(tmp_db):
     conn = get_connection(tmp_db)
     cols = {r[1] for r in conn.execute("PRAGMA table_info(activity_log)").fetchall()}
     assert "reviewed_at" in cols
     conn.close()
 
 
-def test_migration_160_creates_timesheet_closeouts(tmp_db):
+def test_migration_161_creates_timesheet_closeouts(tmp_db):
     conn = get_connection(tmp_db)
     tables = {r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'"
@@ -40,7 +40,7 @@ def test_migration_160_creates_timesheet_closeouts(tmp_db):
     conn.close()
 
 
-def test_migration_160_partial_index_on_reviewed_at(tmp_db):
+def test_migration_161_partial_index_on_reviewed_at(tmp_db):
     conn = get_connection(tmp_db)
     idxs = {r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='activity_log'"
@@ -49,7 +49,7 @@ def test_migration_160_partial_index_on_reviewed_at(tmp_db):
     conn.close()
 
 
-def test_migration_160_closeouts_unique_week_start(tmp_db):
+def test_migration_161_closeouts_unique_week_start(tmp_db):
     conn = get_connection(tmp_db)
     conn.execute(
         """INSERT INTO timesheet_closeouts
