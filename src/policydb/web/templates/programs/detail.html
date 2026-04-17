@@ -31,8 +31,13 @@
         <span class="text-gray-400">—</span>
         <a href="/clients/{{ client.id }}" class="text-sm text-marsh hover:underline">{{ client.name }}</a>
       </div>
-      <a href="/clients/{{ client.id }}?tab=policies"
-         class="text-xs text-marsh hover:underline no-print">&larr; Back to Client</a>
+      <div class="flex items-center gap-2 no-print">
+        {% with entity_type="program", entity_id=program.program_uid %}
+          {% include "_search_outlook_btn.html" %}
+        {% endwith %}
+        <a href="/clients/{{ client.id }}?tab=policies"
+           class="text-xs text-marsh hover:underline">&larr; Back to Client</a>
+      </div>
     </div>
     <div class="flex flex-wrap items-center gap-6 text-sm">
       {# ── Location picker ── #}
