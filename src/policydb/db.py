@@ -2137,6 +2137,15 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         conn.commit()
         logger.info("Migration 159: added contacts.title column")
 
+    if 160 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "160_timesheet_review.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (160, "Add activity_log.reviewed_at + timesheet_closeouts table (Phase 4 Timesheet Review)"),
+        )
+        conn.commit()
+        logger.info("Migration 160: added activity_log.reviewed_at + timesheet_closeouts")
+
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
 
