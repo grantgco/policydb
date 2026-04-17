@@ -121,6 +121,30 @@ def post_reopen(closeout_id: int, conn=Depends(get_db)):
     return JSONResponse({"ok": True})
 
 
+@router.get("/activity/new", response_class=HTMLResponse)
+def get_new_activity_form(
+    request: Request,
+    date: str = Query(...),
+    conn=Depends(get_db),
+):
+    from datetime import date as _date
+    try:
+        _date.fromisoformat(date)
+    except ValueError:
+        raise HTTPException(400, "Invalid date")
+    clients = conn.execute(
+        "SELECT id, name FROM clients ORDER BY name LIMIT 500"
+    ).fetchall()
+    return templates.TemplateResponse(
+        "timesheet/_add_activity_form.html",
+        {
+            "request": request,
+            "day": {"date": date},
+            "client_list": [dict(r) for r in clients],
+        },
+    )
+
+
 @router.post("/activity/{activity_id}/review")
 def post_review(activity_id: int, conn=Depends(get_db)):
     row = conn.execute(

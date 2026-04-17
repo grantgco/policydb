@@ -19,6 +19,10 @@
     </div>
   </header>
 
+  {% if payload.closeout.closed_at %}
+    {% include "timesheet/_closeout_badge.html" %}
+  {% endif %}
+
   {% if payload.flags.silent_clients %}
     {% include "timesheet/_flag_strip.html" %}
   {% endif %}
@@ -34,6 +38,13 @@
       {% for activity in day.activities %}
         {% include "timesheet/_activity_row.html" %}
       {% endfor %}
+      <div class="add-slot"></div>
+      <button class="add-trigger text-xs text-stone-500 mt-1 hover:text-policydb-blue"
+              hx-get="/timesheet/activity/new?date={{ day.date }}"
+              hx-target="closest .day-card .add-slot"
+              hx-swap="innerHTML">
+        ➕ Add activity for {{ day.label }}
+      </button>
       {% if not day.activities %}
         <div class="text-xs text-stone-400">No activity logged</div>
       {% endif %}

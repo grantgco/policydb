@@ -340,3 +340,31 @@ def test_flag_strip_appears_when_silent_clients_present(client):
 def test_flag_strip_absent_when_no_silent_clients(client):
     resp = client.get("/timesheet/panel")
     assert "flag-strip" not in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Task 19: _closeout_badge + _add_activity_form + GET /activity/new
+# ---------------------------------------------------------------------------
+
+def test_closeout_badge_renders_when_week_closed(client):
+    from policydb.db import get_connection
+    conn = get_connection()
+    conn.execute(
+        """INSERT INTO timesheet_closeouts
+           (week_start, week_end, total_hours, activity_count, flag_count)
+           VALUES ('2026-04-13', '2026-04-19', 28.5, 20, 2)"""
+    )
+    conn.commit()
+    conn.close()
+
+    resp = client.get("/timesheet/panel?kind=week&start=2026-04-13&end=2026-04-19")
+    assert resp.status_code == 200
+    assert "Closed" in resp.text
+    assert "28.5" in resp.text
+
+
+def test_add_activity_fragment(client):
+    resp = client.get("/timesheet/activity/new?date=2026-04-15")
+    assert resp.status_code == 200
+    assert "activity_date" in resp.text
+    assert "2026-04-15" in resp.text
