@@ -289,7 +289,10 @@ def get_tower_data(conn: sqlite3.Connection, client_id: int) -> list[dict]:
 
         lp = (r["layer_position"] or "Primary").strip().lower()
         att = r["attachment_point"] or 0
-        is_primary = lp == "primary" or (att == 0 and lp not in ("umbrella",))
+        # Trust attachment_point as the source of truth: a primary by definition
+        # attaches at $0. If att > 0 the policy is a layer regardless of how its
+        # layer_position label was filled in (importers default to "Primary").
+        is_primary = (att == 0) and lp not in ("umbrella", "excess")
 
         # Check if this policy is a package
         pkg_key = (tg, r["policy_type"], r["carrier"], r["policy_number"])
@@ -1053,7 +1056,8 @@ def get_exec_financial_summary_data(
         tg = r["program_name"] or "General"
         lp = (r["layer_position"] or "Primary").strip().lower()
         att = r["attachment_point"] or 0
-        is_primary = lp == "primary" or (att == 0 and lp not in ("umbrella",))
+        # Same rule as get_tower_data — attachment_point is authoritative.
+        is_primary = (att == 0) and lp not in ("umbrella", "excess")
 
         section_label = "Primary" if is_primary else "Excess"
         section_key = f"{tg}|{section_label}"

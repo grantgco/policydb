@@ -7,17 +7,6 @@
              unified Y-axis scale (all blocks positioned by dollar value)
 #}
 {% from "charts/_chart_base.html" import chart_frame %}
-{% if tower_incomplete is defined and tower_incomplete %}
-<div id="tower-incomplete-banner" class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 mb-2 flex items-center justify-between no-print">
-  <div class="flex items-center gap-2">
-    <span class="text-xs text-amber-700">Program data is incomplete{% if tower_missing is defined and tower_missing %}: {{ tower_missing | join(', ') }}{% endif %}</span>
-    <a href="/clients/{{ client_id }}/programs/{{ tower_incomplete | urlencode }}" target="_blank"
-       class="text-xs text-marsh hover:underline font-medium">Set up program &rarr;</a>
-  </div>
-  <button type="button" onclick="this.closest('#tower-incomplete-banner').remove()"
-    class="text-amber-400 hover:text-amber-600 text-sm leading-none ml-2">&times;</button>
-</div>
-{% endif %}
 {% call(area_id) chart_frame("Program Structure", "Tower / layer diagram") %}
 <div id="{{ area_id }}" style="width:100%;height:100%"></div>
 <script>
@@ -34,8 +23,28 @@
       return;
     }
 
+    // Compute the natural width vs. the room available — if a tower has many
+    // columns, expand the SVG and let the chart-content scroll horizontally
+    // rather than crushing carrier names below ~70px columns.
+    var MIN_COL_W = 75, MAX_COL_W = 180;
+    var marginH = 65; // left 55 + right 10
+    var availW = (container.clientWidth || 896) - marginH;
+    var _totalCols = 0;
+    data.forEach(function(t) { _totalCols += Math.max((t.underlying || []).length, 1); });
+    var _gaps = Math.max(0, data.length - 1) * 24;
+    var requiredInnerW = _totalCols * MIN_COL_W + _gaps;
+    var fullW = container.clientWidth || 896;
+    if (requiredInnerW > availW) {
+      fullW = requiredInnerW + marginH;
+      container.style.overflowX = 'auto';
+      container.style.overflowY = 'hidden';
+    } else {
+      container.style.overflowX = '';
+      container.style.overflowY = '';
+    }
     var chart = createChartSvg('{{ area_id }}', {
-      margin: {top: 10, right: 10, bottom: 10, left: 55}
+      margin: {top: 10, right: 10, bottom: 10, left: 55},
+      width: fullW
     });
     var g = chart.g, W = chart.width, H = chart.height;
 
@@ -66,6 +75,12 @@
       return '$' + v.toLocaleString();
     }
     function tr(s, m) { return !s ? '' : s.length > m ? s.substring(0,m-1)+'\u2026' : s; }
+    // Width-aware truncate: estimates max chars that fit in pxWidth at the given px-per-char ratio.
+    function trW(s, pxWidth, pxPerChar) {
+      if (!s) return '';
+      var maxChars = Math.max(3, Math.floor((pxWidth - 6) / pxPerChar));
+      return tr(s, maxChars);
+    }
 
     // ── Compute the global maximum dollar value across all tower groups ──
     var globalMaxVal = 0;
@@ -83,12 +98,17 @@
     });
     if (globalMaxVal === 0) globalMaxVal = 1000000; // fallback
 
-    // Round up to a nice number for Y-axis
-    var niceMax;
-    if (globalMaxVal >= 5e6) niceMax = Math.ceil(globalMaxVal / 5e6) * 5e6;
-    else if (globalMaxVal >= 1e6) niceMax = Math.ceil(globalMaxVal / 1e6) * 1e6;
-    else if (globalMaxVal >= 100e3) niceMax = Math.ceil(globalMaxVal / 500e3) * 500e3;
-    else niceMax = Math.ceil(globalMaxVal / 100e3) * 100e3;
+    // Choose tick step first, then round niceMax up to the next step boundary so
+    // every tick lands on a clean dollar amount (no $1.25M ticks).
+    var tickStep;
+    if (globalMaxVal >= 100e6) tickStep = 25e6;
+    else if (globalMaxVal >= 50e6) tickStep = 10e6;
+    else if (globalMaxVal >= 20e6) tickStep = 5e6;
+    else if (globalMaxVal >= 5e6) tickStep = 2e6;
+    else if (globalMaxVal >= 1e6) tickStep = 1e6;
+    else if (globalMaxVal >= 250e3) tickStep = 250e3;
+    else tickStep = 100e3;
+    var niceMax = Math.ceil(globalMaxVal / tickStep) * tickStep;
 
     // ── Unified Y-axis: map dollar values to pixel positions ──
     // The "tower zone" is the area between the title and the label/deductible rows
@@ -102,16 +122,14 @@
       return towerBottom - (dollarVal / niceMax) * towerH;
     }
 
-    // ── Compute column widths ──
-    var totalCols = 0;
-    data.forEach(function(t) { totalCols += Math.max(t.underlying.length, 1); });
-    var totalTwrGaps = Math.max(0, (data.length - 1)) * TWR_GAP;
-    var colW = Math.min(Math.floor((W - totalTwrGaps) / Math.max(totalCols, 1)), 180);
+    // ── Compute column widths (clamped to [MIN_COL_W, MAX_COL_W]) ──
+    var totalCols = _totalCols;
+    var totalTwrGaps = _gaps;
+    var fitColW = Math.floor((W - totalTwrGaps) / Math.max(totalCols, 1));
+    var colW = Math.min(MAX_COL_W, Math.max(MIN_COL_W, fitColW));
 
-    // ── Y-axis reference marks ──
-    var tickCount = 4;
-    for (var ti = 0; ti <= tickCount; ti++) {
-      var tickVal = (niceMax / tickCount) * ti;
+    // ── Y-axis reference marks — every tick lands on a tickStep boundary ──
+    for (var tickVal = 0; tickVal <= niceMax + 0.5; tickVal += tickStep) {
       var tickY = valToY(tickVal);
       if (tickY < towerTop - 5) continue;
       g.append('line')
@@ -123,7 +141,7 @@
         .attr('x', -5).attr('y', tickY + 3)
         .attr('text-anchor', 'end')
         .style('font-size', '8px').attr('fill', '#94a3b8')
-        .text(fmtL(tickVal));
+        .text(tickVal === 0 ? '$0' : fmtL(tickVal));
     }
 
     // ── Render each tower group ──
@@ -135,30 +153,46 @@
       var numCols = Math.max(under.length, 1);
       var towerW = numCols * colW;
 
-      // Title — skip if empty (Ungrouped suppressed)
+      // Title — skip if empty (Ungrouped suppressed). Underline the title with a thin
+      // brand-color rule so each group reads as a section header rather than floating text.
       if (tower.program_name) {
+        var titleW = Math.min(towerW - 12, 160);
+        var titleCx = curX + towerW / 2;
         g.append('text')
-          .attr('x', curX + towerW/2).attr('y', 11)
+          .attr('x', titleCx).attr('y', 11)
           .attr('text-anchor', 'middle')
           .style('font-size', '11px').style('font-weight', '700').style('font-family', 'Noto Serif, serif')
           .attr('fill', C.titleC)
-          .text(tr(tower.program_name, 28));
+          .text(trW(tower.program_name, towerW, 6));
+        g.append('line')
+          .attr('x1', titleCx - titleW / 2).attr('x2', titleCx + titleW / 2)
+          .attr('y1', 14).attr('y2', 14)
+          .attr('stroke', C.titleC).attr('stroke-width', 0.75).attr('opacity', 0.35);
       }
 
       // ── Bottom section: labels + deductibles ──
       var baseY = H;
 
-      // Labels row
+      // Labels row — merge consecutive columns with the same label into one span
       baseY -= LABEL_H;
+      var labelRuns = [];
       under.forEach(function(u, ci) {
-        var cx = curX + ci * colW;
-        g.append('rect').attr('x', cx).attr('y', baseY).attr('width', colW).attr('height', LABEL_H)
+        var lbl = u.label || '';
+        var prev = labelRuns[labelRuns.length - 1];
+        if (prev && prev.label === lbl) {
+          prev.span += 1;
+        } else {
+          labelRuns.push({ label: lbl, startCi: ci, span: 1 });
+        }
+      });
+      labelRuns.forEach(function(run) {
+        var rectX = curX + run.startCi * colW;
+        var rectW = run.span * colW;
+        g.append('rect').attr('x', rectX).attr('y', baseY).attr('width', rectW).attr('height', LABEL_H)
           .attr('fill', C.label).attr('stroke', C.labelBd).attr('stroke-width', 0.5);
-        // Scale label length based on column width
-        var maxChars = Math.max(12, Math.floor(colW / 6));
-        g.append('text').attr('x', cx + colW/2).attr('y', baseY + LABEL_H/2 + 4)
+        g.append('text').attr('x', rectX + rectW / 2).attr('y', baseY + LABEL_H / 2 + 4)
           .attr('text-anchor', 'middle').style('font-size', '8px').style('font-weight', '600')
-          .attr('fill', C.textMut).text(tr(u.label, maxChars));
+          .attr('fill', C.textMut).text(trW(run.label, rectW, 4.8));
       });
 
       // Deductible row
@@ -231,35 +265,23 @@
           });
         }
 
-        // Carrier — centered in block (arrows are now outside)
+        // Carrier — centered in block (width-aware truncate)
         var textY = blockTop + pH/2 - 3;
         g.append('text').attr('x', cx + colW/2).attr('y', textY)
           .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '600')
-          .attr('fill', C.textDk).text(tr(u.carrier, 16));
+          .attr('fill', C.textDk).text(trW(u.carrier, colW, 5.5));
 
-        // Limit or "Statutory"
-        if (u.is_statutory) {
-          g.append('text').attr('x', cx + colW/2).attr('y', textY + 12)
-            .attr('text-anchor', 'middle').style('font-size', '8px').style('font-weight', '600')
-            .attr('fill', C.textDk).attr('opacity', 0.7).text('Statutory');
-        } else {
-          g.append('text').attr('x', cx + colW/2).attr('y', blockTop + pH/2 + 9)
-            .attr('text-anchor', 'middle').style('font-size', '8px')
-            .attr('fill', C.textDk).attr('opacity', 0.8).text(fmtL(u.limit));
-        }
-
-        // Package badge ("via BOP", "via WC")
-        if (u.is_package && u.package_parent_type) {
-          g.append('text').attr('x', cx + colW - 3).attr('y', blockTop + 9)
-            .attr('text-anchor', 'end').style('font-size', '6px').style('font-style', 'italic')
-            .attr('fill', C.pkgBadge).text('via ' + tr(u.package_parent_type, 12));
-        }
-
-        // Premium (skip for package sub-cov columns — they show 0)
-        if (u.premium && !u.is_package) {
-          g.append('text').attr('x', cx + colW - 3).attr('y', blockTop + pH - 3)
-            .attr('text-anchor', 'end').style('font-size', '7px')
-            .attr('fill', C.premC).text(fmtL(u.premium));
+        // Limit or "Statutory" (only when block is tall enough to fit both lines)
+        if (pH >= 22) {
+          if (u.is_statutory) {
+            g.append('text').attr('x', cx + colW/2).attr('y', textY + 12)
+              .attr('text-anchor', 'middle').style('font-size', '8px').style('font-weight', '600')
+              .attr('fill', C.textDk).attr('opacity', 0.7).text('Statutory');
+          } else {
+            g.append('text').attr('x', cx + colW/2).attr('y', blockTop + pH/2 + 9)
+              .attr('text-anchor', 'middle').style('font-size', '8px')
+              .attr('fill', C.textDk).attr('opacity', 0.8).text(fmtL(u.limit));
+          }
         }
       });
 
@@ -295,7 +317,7 @@
           var umbH = umbColBottom - umbTopY;
           if (umbH > 0) {
             g.append('rect').attr('x', cx).attr('y', umbTopY).attr('width', colW).attr('height', umbH)
-              .attr('fill', C.umbrella).attr('stroke', C.split).attr('stroke-width', 0.5);
+              .attr('fill', C.umbrella).attr('stroke', C.umbrella).attr('stroke-width', 0.5);
           }
         });
 
@@ -315,13 +337,25 @@
           }
         }
         var umbMidY = (umbTopY + umbBottomY) / 2;
+        // Estimate the umbrella band's effective width (covered cols × colW)
+        var umbBandW;
+        {
+          var covIs = [];
+          under.forEach(function(u, ci) {
+            if (u.is_statutory) return;
+            if (hasSelective && covTypes.indexOf(u.label) === -1) return;
+            covIs.push(ci);
+          });
+          umbBandW = covIs.length ? (d3.max(covIs) - d3.min(covIs) + 1) * colW : towerW;
+        }
         g.append('text').attr('x', labelCenterX).attr('y', umbMidY - 2)
           .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '700')
-          .attr('fill', C.textLt).text(tr(umbLayer.policy_type, 20));
+          .attr('fill', C.textLt).text(trW(umbLayer.policy_type, umbBandW, 5.5));
+        var umbMeta = (umbLayer.carrier || '') + '  ' + (umbLayer.notation || fmtL(umbLayer.limit));
         g.append('text').attr('x', labelCenterX).attr('y', umbMidY + 9)
           .attr('text-anchor', 'middle').style('font-size', '8px')
           .attr('fill', C.textLt).attr('opacity', 0.9)
-          .text(tr(umbLayer.carrier, 20) + '  ' + (umbLayer.notation || fmtL(umbLayer.limit)));
+          .text(trW(umbMeta, umbBandW, 4.8));
       }
 
       // ── Excess layers — each positioned by its attachment_point and limit ──
@@ -353,14 +387,14 @@
               .attr('fill', bg).attr('stroke', C.split).attr('stroke-width', 1);
             g.append('text').attr('x', px + pW/2).attr('y', layerTop + 11)
               .attr('text-anchor', 'middle').style('font-size', '7px')
-              .attr('fill', fg).attr('opacity', 0.7).text(tr(layer.policy_type, 16));
+              .attr('fill', fg).attr('opacity', 0.7).text(trW(layer.policy_type, pW, 4.4));
             g.append('text').attr('x', px + pW/2).attr('y', layerTop + 21)
               .attr('text-anchor', 'middle').style('font-size', '9px').style('font-weight', '700')
-              .attr('fill', fg).text(tr(p.carrier, 14));
+              .attr('fill', fg).text(trW(p.carrier, pW, 5.5));
             if (p.notation && layerH >= 36) {
               g.append('text').attr('x', px + pW/2).attr('y', layerTop + 31)
                 .attr('text-anchor', 'middle').style('font-size', '7px').style('font-style', 'italic')
-                .attr('fill', fg).attr('opacity', 0.8).text(tr(p.notation, 20));
+                .attr('fill', fg).attr('opacity', 0.8).text(trW(p.notation, pW, 4.4));
             }
           });
         } else {
@@ -368,19 +402,14 @@
             .attr('fill', bg).attr('stroke', C.split).attr('stroke-width', 0.5);
           g.append('text').attr('x', curX + towerW/2).attr('y', layerTop + 11)
             .attr('text-anchor', 'middle').style('font-size', '8px')
-            .attr('fill', fg).attr('opacity', 0.7).text(tr(layer.policy_type, 28));
+            .attr('fill', fg).attr('opacity', 0.7).text(trW(layer.policy_type, towerW, 4.8));
           g.append('text').attr('x', curX + towerW/2).attr('y', layerTop + 22)
             .attr('text-anchor', 'middle').style('font-size', '10px').style('font-weight', '700')
-            .attr('fill', fg).text(tr(layer.carrier || (parts[0]?parts[0].carrier:''), 24));
+            .attr('fill', fg).text(trW(layer.carrier || (parts[0]?parts[0].carrier:''), towerW, 6));
           if (layer.notation && layerH >= 38) {
             g.append('text').attr('x', curX + towerW/2).attr('y', layerTop + 33)
               .attr('text-anchor', 'middle').style('font-size', '8px').style('font-style', 'italic')
-              .attr('fill', fg).attr('opacity', 0.8).text(tr(layer.notation, 30));
-          }
-          if (layer.premium && layerH >= 38) {
-            g.append('text').attr('x', curX + towerW - 4).attr('y', layerTop + layerH - 4)
-              .attr('text-anchor', 'end').style('font-size', '7px')
-              .attr('fill', fg).attr('opacity', 0.6).text(fmtL(layer.premium));
+              .attr('fill', fg).attr('opacity', 0.8).text(trW(layer.notation, towerW, 4.8));
           }
         }
       });
