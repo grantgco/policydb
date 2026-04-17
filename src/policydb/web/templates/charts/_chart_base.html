@@ -24,7 +24,6 @@
            contenteditable="true"
            spellcheck="false"
            data-default-title="{{ title }}"
-           onfocus="this.dataset.before=this.textContent"
            onblur="ChartTitle.save(this)"
            onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">{{ title }}</div>
       {% if subtitle %}<div class="chart-subtitle">{{ subtitle }}</div>{% endif %}
