@@ -268,3 +268,17 @@ def test_post_reopen_deletes_closeout(client):
 def test_post_closeout_rejects_non_monday(client):
     resp = client.post("/timesheet/closeout", data={"week_start": "2026-04-15"})
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Task 15: Range cap behavior lock
+# ---------------------------------------------------------------------------
+
+def test_range_exceeding_cap_returns_400(client):
+    resp = client.get("/timesheet/panel?kind=range&start=2025-01-01&end=2026-04-15")
+    assert resp.status_code == 400
+
+
+def test_range_below_cap_returns_200(client):
+    resp = client.get("/timesheet/panel?kind=range&start=2026-04-01&end=2026-04-30")
+    assert resp.status_code == 200
