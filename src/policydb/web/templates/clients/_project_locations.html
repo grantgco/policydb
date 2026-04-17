@@ -23,7 +23,7 @@ window.addLocation = function(clientId) {
       <a href="/clients/{{ client.id }}/locations" onclick="event.stopPropagation()"
         class="text-xs bg-indigo-500 text-white px-3 py-1 rounded hover:bg-indigo-600 transition-colors">Organize by Location</a>
       <button type="button"
-         onclick="event.stopPropagation(); copyPolicyTable('/clients/{{ client.id }}/projects/locations/copy-table', this)"
+         onclick="event.stopPropagation(); copyPolicyTable('/clients/{{ client.id }}/projects/locations/copy-table', this, '#loc-tbody')"
          class="text-xs text-marsh hover:underline">Copy Table</button>
       <a href="/clients/{{ client.id }}/projects/locations/export?format=xlsx" class="text-xs text-marsh hover:underline">XLSX</a>
       <a href="/clients/{{ client.id }}/projects/locations/export?format=csv" class="text-xs text-gray-400 hover:underline">CSV</a>
@@ -61,7 +61,7 @@ window.addLocation = function(clientId) {
       </thead>
       <tbody id="loc-tbody">
         {% for loc in location_projects %}
-        <tr id="loc-row-{{ loc.id }}" class="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+        <tr id="loc-row-{{ loc.id }}" data-row-id="{{ loc.id }}" class="border-b border-gray-50 hover:bg-gray-50 transition-colors">
           <td class="px-3 py-2">
             <div class="flex items-center gap-1.5">
               <span contenteditable="true"

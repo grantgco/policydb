@@ -895,9 +895,27 @@ function copyRefTag(btn, tag) {
   });
 }
 
-function copyPolicyTable(url, btn) {
+function copyPolicyTable(url, btn, sourceSelector) {
   var orig = btn.textContent;
   btn.textContent = '…';
+
+  /* If a source table/container selector is given, pass the current DOM row order
+     so the pasted table matches the user's client-side sort. The server looks up
+     each id and reorders the rendered rows to match; unknown ids are ignored. */
+  if (sourceSelector) {
+    var src = document.querySelector(sourceSelector);
+    if (src) {
+      var ids = [];
+      src.querySelectorAll('[data-row-id]').forEach(function(el) {
+        var rid = el.getAttribute('data-row-id');
+        if (rid) ids.push(rid);
+      });
+      if (ids.length) {
+        url += (url.indexOf('?') === -1 ? '?' : '&') + 'order=' + encodeURIComponent(ids.join(','));
+      }
+    }
+  }
+
   fetch(url).then(function(r) { return r.json(); }).then(function(data) {
     var htmlBlob = new Blob([data.html], {type: 'text/html'});
     var textBlob = new Blob([data.text], {type: 'text/plain'});

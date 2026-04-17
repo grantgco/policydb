@@ -28,7 +28,7 @@
           {% if project.updated_at_fmt %}saved {{ project.updated_at_fmt }}{% endif %}
         </span>
         <button type="button"
-           onclick="copyPolicyTable('/clients/{{ client.id }}/copy-table?project={{ project.name | urlencode }}', this)"
+           onclick="copyPolicyTable('/clients/{{ client.id }}/copy-table?project={{ project.name | urlencode }}', this, '#project-policies-tbody-{{ project.id }}')"
            class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-2.5 py-1 rounded transition-colors no-print">Copy Table</button>
         <a href="/clients/{{ client.id }}/projects/{{ project.id }}/pdf"
            class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-2.5 py-1 rounded transition-colors no-print">Export PDF ↓</a>
@@ -55,7 +55,7 @@
         </span>
         <div class="flex gap-3 no-print">
           <button type="button"
-            onclick="copyPolicyTable('/clients/{{ client.id }}/copy-table?project={{ project.name | urlencode }}', this)"
+            onclick="copyPolicyTable('/clients/{{ client.id }}/copy-table?project={{ project.name | urlencode }}', this, '#project-policies-tbody-{{ project.id }}')"
             class="text-[11px] text-gray-500 hover:text-marsh">Copy Table</button>
           <a href="/policies/new?client={{ client.id }}&project={{ project.id }}"
              class="text-[11px] text-marsh hover:underline">+ Add Policy</a>
@@ -63,27 +63,27 @@
       </div>
       {% if policies %}
       <div class="overflow-x-auto">
-        <table class="w-full text-sm">
+        <table class="w-full text-sm" data-sortable>
           <thead>
             <tr class="text-left text-[10px] text-gray-400 uppercase tracking-wide bg-gray-50/50 border-b border-gray-100">
-              <th class="px-3 py-2">UID</th>
-              <th class="px-3 py-2">Line of Business</th>
-              <th class="px-3 py-2">Carrier</th>
-              <th class="px-3 py-2">Expires</th>
-              <th class="px-3 py-2 text-right">Premium</th>
-              <th class="px-3 py-2">Status</th>
+              <th class="px-3 py-2" data-sort-key="uid">UID</th>
+              <th class="px-3 py-2" data-sort-key="line">Line of Business</th>
+              <th class="px-3 py-2" data-sort-key="carrier">Carrier</th>
+              <th class="px-3 py-2" data-sort-key="expires" data-sort-type="date">Expires</th>
+              <th class="px-3 py-2 text-right" data-sort-key="premium" data-sort-type="numeric">Premium</th>
+              <th class="px-3 py-2" data-sort-key="status">Status</th>
               <th class="px-3 py-2 w-16"></th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-50">
+          <tbody class="divide-y divide-gray-50" id="project-policies-tbody-{{ project.id }}">
             {% for p in policies %}
-            <tr class="hover:bg-gray-50">
+            <tr class="hover:bg-gray-50" data-row-id="{{ p.policy_uid }}">
               <td class="px-3 py-2 font-mono text-xs text-gray-400">
                 <a href="/policies/{{ p.policy_uid }}/edit" class="hover:text-marsh">{{ p.policy_uid }}</a>
               </td>
               <td class="px-3 py-2 font-medium text-gray-800">{{ p.policy_type or '' }}</td>
               <td class="px-3 py-2 text-gray-600 truncate max-w-[150px]" title="{{ p.carrier or '' }}">{{ p.carrier or '—' }}</td>
-              <td class="px-3 py-2 whitespace-nowrap">
+              <td class="px-3 py-2 whitespace-nowrap" data-sort-value="{{ p.expiration_date or '' }}">
                 {% if p.expiration_date %}
                 <span class="text-xs text-gray-600 tabular-nums">{{ p.expiration_date }}</span>
                 {% if p.days_to_renewal is not none and p.days_to_renewal <= 90 %}
@@ -94,7 +94,7 @@
                 {% endif %}
                 {% else %}—{% endif %}
               </td>
-              <td class="px-3 py-2 text-right tabular-nums text-gray-700">
+              <td class="px-3 py-2 text-right tabular-nums text-gray-700" data-sort-value="{{ p.premium or 0 }}">
                 {{ p.premium | currency if p.premium else '—' }}
               </td>
               <td class="px-3 py-2">

@@ -1898,11 +1898,12 @@ def renewals_copy_table(
     urgency: str = "",
     status: str = "",
     client_id: int = 0,
+    order: str | None = None,
     conn=Depends(get_db),
 ):
     """Return HTML + plain-text renewal pipeline table for clipboard copy."""
     from fastapi.responses import JSONResponse
-    from policydb.email_templates import build_policy_table
+    from policydb.email_templates import build_policy_table, apply_row_order
     from policydb.queries import get_renewal_pipeline_merged
     excluded = cfg.get("renewal_statuses_excluded", [])
     filter_client_ids = [client_id] if client_id else None
@@ -1916,16 +1917,19 @@ def renewals_copy_table(
     )
     # Convert merged pipeline rows to the standard table row format.
     # Programs are mapped to program-level rollup rows so they appear
-    # alongside standalone policies in the pasted table.
+    # alongside standalone policies in the pasted table. `row_id` uses the
+    # template's `subject:uid` token so DOM sort order can be honored.
     rows = []
     for r in pipeline:
         if r.get("_is_program"):
             count = r.get("policy_count") or 0
+            pgm_uid = r.get("program_uid") or ""
             rows.append({
+                "row_id": f"program:{pgm_uid}",
                 "policy_type": f"{r.get('program_name') or ''} (Program)",
                 "carrier": r.get("carriers_list") or "",
                 "access_point": "",
-                "policy_number": r.get("program_uid") or "",
+                "policy_number": pgm_uid,
                 "effective_date": "",
                 "expiration_date": r.get("earliest_expiration") or "",
                 "premium": r.get("total_premium"),
@@ -1933,7 +1937,9 @@ def renewals_copy_table(
                 "description": f"{count} polic{'y' if count == 1 else 'ies'}",
             })
         else:
+            pol_uid = r.get("policy_uid") or ""
             rows.append({
+                "row_id": f"policy:{pol_uid}",
                 "policy_type": r.get("policy_type") or "",
                 "carrier": r.get("carrier") or "",
                 "access_point": r.get("access_point") or "",
@@ -1944,6 +1950,7 @@ def renewals_copy_table(
                 "limit_amount": r.get("limit_amount"),
                 "description": r.get("description") or "",
             })
+    rows = apply_row_order(rows, order, id_key="row_id")
     result = build_policy_table(conn, client_id=0, rows=rows)
     return JSONResponse(result)
 

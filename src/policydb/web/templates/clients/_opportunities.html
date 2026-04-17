@@ -15,25 +15,25 @@
     </div>
     <div class="flex items-center gap-3">
       <button type="button"
-        onclick="copyPolicyTable('/clients/{{ client.id }}/copy-table/opportunities', this)"
+        onclick="copyPolicyTable('/clients/{{ client.id }}/copy-table/opportunities', this, '#opps-tbody-{{ client.id }}')"
         class="text-xs text-gray-300 hover:text-marsh no-print" title="Copy table to clipboard">Copy Table</button>
       <a href="/policies/new?client={{ client.id }}&opp=1" class="text-xs text-marsh hover:underline">+ New Opportunity</a>
     </div>
   </div>
-  <table class="w-full text-sm">
+  <table class="w-full text-sm" data-sortable>
     <thead>
       <tr class="text-left text-xs text-gray-500 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
-        <th class="px-3 py-2">Line of Business</th>
-        <th class="px-3 py-2">Carrier (Target)</th>
-        <th class="px-3 py-2">Status</th>
-        <th class="px-3 py-2">Target Effective</th>
-        <th class="px-3 py-2">Est. Premium</th>
-        <th class="px-3 py-2">Est. Revenue</th>
-        <th class="px-3 py-2">Placement Team</th>
+        <th class="px-3 py-2" data-sort-key="policy_type">Line of Business</th>
+        <th class="px-3 py-2" data-sort-key="carrier">Carrier (Target)</th>
+        <th class="px-3 py-2" data-sort-key="status">Status</th>
+        <th class="px-3 py-2" data-sort-key="target_effective" data-sort-type="date">Target Effective</th>
+        <th class="px-3 py-2" data-sort-key="premium" data-sort-type="numeric">Est. Premium</th>
+        <th class="px-3 py-2" data-sort-key="revenue" data-sort-type="numeric">Est. Revenue</th>
+        <th class="px-3 py-2" data-sort-key="team">Placement Team</th>
         <th class="px-3 py-2"></th>
       </tr>
     </thead>
-    <tbody class="divide-y divide-gray-50">
+    <tbody class="divide-y divide-gray-50" id="opps-tbody-{{ client.id }}">
       {% for o in opportunities %}
       {% include "policies/_opp_client_row.html" %}
       {% endfor %}

@@ -117,8 +117,8 @@ def _fetch_policy_table_rows(
         params.append(project_name)
 
     rows = conn.execute(
-        f"""SELECT p.policy_type, p.carrier, p.access_point, p.policy_number,
-                   p.effective_date, p.expiration_date, p.premium,
+        f"""SELECT p.id, p.policy_uid, p.policy_type, p.carrier, p.access_point,
+                   p.policy_number, p.effective_date, p.expiration_date, p.premium,
                    p.limit_amount, p.description
             FROM policies p
             WHERE p.client_id = ? AND p.archived = 0
@@ -128,6 +128,42 @@ def _fetch_policy_table_rows(
         params,
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def apply_row_order(
+    rows: list[dict],
+    order_param: str | None,
+    id_key: str = "id",
+) -> list[dict]:
+    """Reorder *rows* to match a comma-separated list of row IDs.
+
+    When *order_param* is falsy or empty, *rows* is returned unchanged.
+    Matching is done by ``str(row[id_key])``. Rows whose id is not in the
+    order list are appended at the end in their original order — this keeps
+    the copy output safe when DOM/DB drift (never drop rows).
+    """
+    if not order_param:
+        return rows
+    order_list = [tok.strip() for tok in order_param.split(",") if tok.strip()]
+    if not order_list:
+        return rows
+    by_id: dict[str, dict] = {}
+    for r in rows:
+        rid = r.get(id_key)
+        if rid is not None and str(rid) not in by_id:
+            by_id[str(rid)] = r
+    ordered: list[dict] = []
+    seen: set[str] = set()
+    for rid in order_list:
+        row = by_id.get(rid)
+        if row is not None and rid not in seen:
+            ordered.append(row)
+            seen.add(rid)
+    for r in rows:
+        rid = r.get(id_key)
+        if rid is None or str(rid) not in seen:
+            ordered.append(r)
+    return ordered
 
 
 def _carrier_display(carrier: str, access_point: str) -> str:

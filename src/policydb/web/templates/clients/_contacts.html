@@ -8,7 +8,7 @@
     <h2 class="font-semibold text-gray-900 text-sm">Contacts</h2>
     <div class="flex items-center gap-3 no-print">
       <button type="button"
-        onclick="copyPolicyTable('/clients/{{ client.id }}/contacts/copy-table', this)"
+        onclick="copyPolicyTable('/clients/{{ client.id }}/contacts/copy-table', this, '#client-contacts-tbody-{{ client.id }}')"
         class="text-xs text-gray-400 hover:text-marsh"
         title="Copy contacts table to clipboard">Copy Table</button>
       <button type="button" class="text-xs text-marsh hover:underline font-medium"

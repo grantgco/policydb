@@ -622,9 +622,15 @@ def compose_copy_table(
     policy_uid: str = Query(""),
     client_id: int = Query(0),
     project_name: str = Query(""),
+    order: str = Query(""),
 ):
     """Return {"html": ..., "text": ...} for clipboard copy of linked policies."""
-    from policydb.email_templates import build_policy_table, _render_policy_table_html, _render_policy_table_text
+    from policydb.email_templates import (
+        _fetch_policy_table_rows,
+        _render_policy_table_html,
+        _render_policy_table_text,
+        apply_row_order,
+    )
 
     rows = None
 
@@ -638,25 +644,30 @@ def compose_copy_table(
                 client_id = issue_row["client_id"] or 0
             if issue_row["program_id"]:
                 rows = [dict(r) for r in conn.execute(
-                    """SELECT policy_type, carrier, access_point, policy_number,
+                    """SELECT id, policy_uid, policy_type, carrier, access_point, policy_number,
                               effective_date, expiration_date, premium, limit_amount, description
                        FROM policies WHERE program_id=? AND archived=0 ORDER BY policy_type""",
                     (issue_row["program_id"],),
                 ).fetchall()]
             elif issue_row["policy_id"]:
                 rows = [dict(r) for r in conn.execute(
-                    """SELECT policy_type, carrier, access_point, policy_number,
+                    """SELECT id, policy_uid, policy_type, carrier, access_point, policy_number,
                               effective_date, expiration_date, premium, limit_amount, description
                        FROM policies WHERE id=? AND archived=0""",
                     (issue_row["policy_id"],),
                 ).fetchall()]
 
     if rows is not None:
+        rows = apply_row_order(rows, order or None, id_key="policy_uid")
         return JSONResponse({"html": _render_policy_table_html(rows), "text": _render_policy_table_text(rows)})
 
     if client_id:
-        result = build_policy_table(conn, client_id, project_name or None)
-        return JSONResponse(result)
+        rows = _fetch_policy_table_rows(conn, client_id, project_name or None)
+        rows = apply_row_order(rows, order or None, id_key="policy_uid")
+        return JSONResponse({
+            "html": _render_policy_table_html(rows),
+            "text": _render_policy_table_text(rows),
+        })
 
     return JSONResponse({"html": "", "text": ""}, status_code=400)
 

@@ -4252,20 +4252,35 @@ def client_policies_json(client_id: int, conn=Depends(get_db)):
 
 
 @router.get("/{client_id}/copy-table")
-def copy_table(client_id: int, project: str | None = None, conn=Depends(get_db)):
+def copy_table(
+    client_id: int,
+    project: str | None = None,
+    order: str | None = None,
+    conn=Depends(get_db),
+):
     """Return HTML + plain-text policy table for clipboard copy."""
     from fastapi.responses import JSONResponse
-    from policydb.email_templates import build_policy_table
-    result = build_policy_table(conn, client_id, project_name=project or None)
-    return JSONResponse(result)
+    from policydb.email_templates import (
+        _fetch_policy_table_rows,
+        _render_policy_table_html,
+        _render_policy_table_text,
+        apply_row_order,
+    )
+    rows = _fetch_policy_table_rows(conn, client_id, project_name=project or None)
+    rows = apply_row_order(rows, order, id_key="policy_uid")
+    return JSONResponse({
+        "html": _render_policy_table_html(rows),
+        "text": _render_policy_table_text(rows),
+    })
 
 
 @router.get("/{client_id}/contacts/copy-table")
-def copy_table_client_contacts(client_id: int, conn=Depends(get_db)):
+def copy_table_client_contacts(client_id: int, order: str | None = None, conn=Depends(get_db)):
     """Return HTML + plain-text contacts table for clipboard copy."""
-    from policydb.email_templates import build_generic_table
+    from policydb.email_templates import build_generic_table, apply_row_order
     rows = [dict(r) for r in get_client_contacts(conn, client_id, contact_type='client')]
     _attach_contact_last_touch(conn, rows, client_id)
+    rows = apply_row_order(rows, order, id_key="id")
     columns = [
         ("name", "Name", False),
         ("title", "Title", False),
@@ -4280,10 +4295,11 @@ def copy_table_client_contacts(client_id: int, conn=Depends(get_db)):
 
 
 @router.get("/{client_id}/team/copy-table")
-def copy_table_team_contacts(client_id: int, conn=Depends(get_db)):
+def copy_table_team_contacts(client_id: int, order: str | None = None, conn=Depends(get_db)):
     """Return HTML + plain-text internal team table for clipboard copy."""
-    from policydb.email_templates import build_generic_table
+    from policydb.email_templates import build_generic_table, apply_row_order
     rows = [dict(r) for r in get_client_contacts(conn, client_id, contact_type='internal')]
+    rows = apply_row_order(rows, order, id_key="id")
     columns = [
         ("name", "Name", False),
         ("title", "Title", False),
@@ -4297,10 +4313,11 @@ def copy_table_team_contacts(client_id: int, conn=Depends(get_db)):
 
 
 @router.get("/{client_id}/external/copy-table")
-def copy_table_external_contacts(client_id: int, conn=Depends(get_db)):
+def copy_table_external_contacts(client_id: int, order: str | None = None, conn=Depends(get_db)):
     """Return HTML + plain-text external stakeholders table for clipboard copy."""
-    from policydb.email_templates import build_generic_table
+    from policydb.email_templates import build_generic_table, apply_row_order
     rows = [dict(r) for r in get_client_contacts(conn, client_id, contact_type='external')]
+    rows = apply_row_order(rows, order, id_key="id")
     columns = [
         ("name", "Name", False),
         ("organization", "Organization", False),
@@ -4314,13 +4331,13 @@ def copy_table_external_contacts(client_id: int, conn=Depends(get_db)):
 
 
 @router.get("/{client_id}/placement/copy-table")
-def copy_table_placement(client_id: int, conn=Depends(get_db)):
+def copy_table_placement(client_id: int, order: str | None = None, conn=Depends(get_db)):
     """Return HTML + plain-text placement touchpoints table for clipboard copy.
 
     One row per placement contact with a rolled-up list of assigned coverages
     (LOB, project, status). Archived/lost policies are included but tagged.
     """
-    from policydb.email_templates import build_generic_table
+    from policydb.email_templates import build_generic_table, apply_row_order
 
     pc_rows = conn.execute(
         """SELECT co.id, co.name, co.email, co.phone, co.organization
@@ -4366,6 +4383,7 @@ def copy_table_placement(client_id: int, conn=Depends(get_db)):
                 label += f" — {p['project_name']}"
             coverage_parts.append(label)
         rows.append({
+            "id": r["id"],
             "name": r["name"] or "",
             "organization": r["organization"] or "",
             "email": r["email"] or "",
@@ -4374,6 +4392,8 @@ def copy_table_placement(client_id: int, conn=Depends(get_db)):
             "active_count": len(active),
             "total_count": len(pols),
         })
+
+    rows = apply_row_order(rows, order, id_key="id")
 
     columns = [
         ("name", "Name", False),
@@ -4388,13 +4408,14 @@ def copy_table_placement(client_id: int, conn=Depends(get_db)):
 
 
 @router.get("/{client_id}/copy-table/opportunities")
-def copy_table_opportunities(client_id: int, conn=Depends(get_db)):
+def copy_table_opportunities(client_id: int, order: str | None = None, conn=Depends(get_db)):
     """Return HTML + plain-text opportunities table for clipboard copy."""
     from fastapi.responses import JSONResponse
-    from policydb.email_templates import build_generic_table
+    from policydb.email_templates import build_generic_table, apply_row_order
     from policydb.queries import get_policies_for_client
     all_policies = [dict(p) for p in get_policies_for_client(conn, client_id)]
     opps = [p for p in all_policies if p.get("is_opportunity")]
+    opps = apply_row_order(opps, order, id_key="policy_uid")
     columns = [
         ("policy_type", "Line of Business", False),
         ("carrier", "Carrier (Target)", False),
@@ -4408,12 +4429,13 @@ def copy_table_opportunities(client_id: int, conn=Depends(get_db)):
 
 
 @router.get("/{client_id}/copy-table/schedule")
-def copy_table_schedule(client_id: int, conn=Depends(get_db)):
+def copy_table_schedule(client_id: int, order: str | None = None, conn=Depends(get_db)):
     """Return HTML + plain-text schedule of insurance for clipboard copy."""
     from fastapi.responses import JSONResponse
-    from policydb.email_templates import build_generic_table
+    from policydb.email_templates import build_generic_table, apply_row_order
     from policydb.exporter import _schedule_rows_for_client
     rows = [dict(r) for r in _schedule_rows_for_client(conn, client_id)]
+    rows = apply_row_order(rows, order, id_key="Policy Number")
     # Strip client_name — already known from context
     for r in rows:
         r.pop("client_name", None)
@@ -4436,14 +4458,15 @@ def copy_table_schedule(client_id: int, conn=Depends(get_db)):
 
 
 @router.get("/{client_id}/requests/{bundle_id}/copy-table")
-def copy_table_request_bundle(client_id: int, bundle_id: int, conn=Depends(get_db)):
+def copy_table_request_bundle(client_id: int, bundle_id: int, order: str | None = None, conn=Depends(get_db)):
     """Return HTML + plain-text request bundle items for clipboard copy."""
     from fastapi.responses import JSONResponse
-    from policydb.email_templates import build_generic_table
+    from policydb.email_templates import build_generic_table, apply_row_order
     items = _enrich_request_items(conn, [dict(r) for r in conn.execute(
         "SELECT * FROM client_request_items WHERE bundle_id=? ORDER BY received ASC, sort_order ASC, id ASC",
         (bundle_id,),
     ).fetchall()])
+    items = apply_row_order(items, order, id_key="id")
     # Build a coverage/location column
     for item in items:
         parts = []
@@ -6623,10 +6646,10 @@ def project_pipeline_export(
 
 
 @router.get("/{client_id}/projects/pipeline/copy-table")
-def project_pipeline_copy_table(client_id: int, conn=Depends(get_db)):
+def project_pipeline_copy_table(client_id: int, order: str | None = None, conn=Depends(get_db)):
     """Return HTML + plain-text pipeline table for clipboard copy."""
     from fastapi.responses import JSONResponse
-    from policydb.email_templates import build_generic_table
+    from policydb.email_templates import build_generic_table, apply_row_order
     projects = _get_project_pipeline(conn, client_id)
     for p in projects:
         pols = conn.execute("""
@@ -6639,6 +6662,7 @@ def project_pipeline_copy_table(client_id: int, conn=Depends(get_db)):
             status = "Opp" if pol["is_opportunity"] else (pol["renewal_status"] or "Placed")
             coverages.append(f"{pol['policy_type']} ({status})")
         p["coverage_list"] = ", ".join(coverages) if coverages else ""
+    projects = apply_row_order(projects, order, id_key="id")
     columns = [
         ("name", "Project", False),
         ("project_type", "Type", False),
@@ -6719,10 +6743,10 @@ def project_locations_export(
 
 
 @router.get("/{client_id}/projects/locations/copy-table")
-def project_locations_copy_table(client_id: int, conn=Depends(get_db)):
+def project_locations_copy_table(client_id: int, order: str | None = None, conn=Depends(get_db)):
     """Return HTML + plain-text locations table for clipboard copy."""
     from fastapi.responses import JSONResponse
-    from policydb.email_templates import build_generic_table
+    from policydb.email_templates import build_generic_table, apply_row_order
     locations = _get_project_locations(conn, client_id)
     for loc in locations:
         pols = conn.execute("""
@@ -6735,6 +6759,7 @@ def project_locations_copy_table(client_id: int, conn=Depends(get_db)):
             status = "Opp" if pol["is_opportunity"] else (pol["renewal_status"] or "Placed")
             coverages.append(f"{pol['policy_type']} ({status})")
         loc["coverage_list"] = ", ".join(coverages) if coverages else ""
+    locations = apply_row_order(locations, order, id_key="id")
     columns = [
         ("name", "Location", False),
         ("address", "Address", False),
