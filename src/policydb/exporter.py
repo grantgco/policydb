@@ -1668,70 +1668,102 @@ def render_request_compose_text(conn, bundle_id: int) -> str:
     return "\n".join(lines)
 
 
-def export_client_requests_xlsx(conn, client_id: int) -> bytes:
-    """Export all non-complete request bundles for a client as a multi-sheet XLSX.
+_CLIENT_REQ_COL_WIDTHS = {
+    "Item": 45,
+    "Coverage": 30,
+    "RFI": 18,
+    "Category": 18,
+    "Status": 14,
+    "Received Date": 16,
+    "Attached File(s)": 35,
+    "Notes / Response": 45,
+}
 
-    Includes an "Attached File(s)" column that lists filenames already
-    uploaded for each item — so when the workbook is delivered alongside a
-    ZIP of files, the client can match every file to a row.
+
+def export_client_requests_xlsx(conn, client_id: int) -> bytes:
+    """Export all non-complete request items for a client as a multi-sheet XLSX.
+
+    Tabs are grouped by program or location, not by RFI bundle — so when a
+    single program or project has items across multiple open requests the
+    client sees them together. Each row carries an "RFI" column so the
+    source bundle is still traceable, and the "Attached File(s)" column
+    lets the workbook double as a manifest for the companion ZIP.
+
+    Grouping precedence per item:
+      1. If the item's policy is tied to a program → that program's tab
+      2. Else if the item (or its policy) has a project/location → that tab
+      3. Else → "Unassigned" tab
     """
-    bundles = conn.execute(
-        "SELECT * FROM client_request_bundles WHERE client_id=? AND status != 'complete' ORDER BY updated_at DESC",
+    from collections import defaultdict
+
+    items = conn.execute(
+        """SELECT cri.*,
+                  p.policy_type, p.carrier,
+                  COALESCE(NULLIF(p.project_name, ''), NULLIF(cri.project_name, ''), '') AS location,
+                  pgm.name AS program_name, pgm.program_uid,
+                  b.rfi_uid, b.title AS bundle_title
+             FROM client_request_items cri
+             JOIN client_request_bundles b ON cri.bundle_id = b.id
+             LEFT JOIN policies p ON cri.policy_uid = p.policy_uid
+             LEFT JOIN programs pgm ON p.program_id = pgm.id
+            WHERE b.client_id = ? AND b.status != 'complete'
+            ORDER BY cri.received ASC, cri.sort_order ASC, cri.id ASC""",
         (client_id,),
     ).fetchall()
 
     wb = Workbook()
     wb.remove(wb.active)
 
-    any_items = False
-    for b in bundles:
-        b = dict(b)
-        items = conn.execute(
-            """SELECT cri.*, p.policy_type, p.carrier, p.project_name AS pol_project
-               FROM client_request_items cri
-               LEFT JOIN policies p ON cri.policy_uid = p.policy_uid
-               WHERE cri.bundle_id = ?
-               ORDER BY cri.received ASC, cri.sort_order ASC, cri.id ASC""",
-            (b["id"],),
-        ).fetchall()
-        item_ids = [dict(i)["id"] for i in items]
-        att_by_item = _rfi_item_attachment_filenames(conn, item_ids)
-        rows = []
-        for item in items:
-            i = dict(item)
-            ref_parts = []
-            if i.get("policy_type"):
-                ref_parts.append(i["policy_type"])
-            if i.get("carrier"):
-                ref_parts.append(i["carrier"])
-            if i.get("pol_project") or i.get("project_name"):
-                proj = i.get("pol_project") or i.get("project_name")
-                ref_parts.append(proj)
-            files = att_by_item.get(i["id"], [])
-            rows.append({
-                "Item": i["description"],
-                "Coverage / Location": " — ".join(ref_parts) if ref_parts else "",
-                "Category": i.get("category") or "",
-                "Status": "Received" if i["received"] else "Outstanding",
-                "Received Date": (i.get("received_at") or "")[:10] if i["received"] else "",
-                "Attached File(s)": "\n".join(files),
-                "Notes / Response": i.get("notes") or "",
-            })
-        if rows:
-            any_items = True
-        sheet_name = (b.get("rfi_uid") or b["title"] or "Request")[:31]
-        _write_sheet(wb, sheet_name, rows, col_widths=_RFI_COL_WIDTHS)
-
-        # Add request date metadata above the data table
-        date_label = _bundle_date_label(b)
-        if date_label:
-            ws = wb[sheet_name]
-            ws.insert_rows(1)
-            ws["A1"] = date_label
-            ws["A1"].font = Font(bold=True)
-
-    if not any_items and not bundles:
+    if not items:
         _write_sheet(wb, "Requests", [{"Item": "No outstanding items"}])
+        return _wb_to_bytes(wb)
+
+    att_by_item = _rfi_item_attachment_filenames(conn, [dict(i)["id"] for i in items])
+
+    # kind ordering: program first, then location, then unassigned last
+    _KIND_ORDER = {"program": 0, "location": 1, "unassigned": 2}
+    groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
+
+    for item in items:
+        i = dict(item)
+        program = (i.get("program_name") or "").strip()
+        location = (i.get("location") or "").strip()
+        if program:
+            key = ("program", program)
+        elif location:
+            key = ("location", location)
+        else:
+            key = ("unassigned", "Unassigned")
+
+        ref_parts = []
+        if i.get("policy_type"):
+            ref_parts.append(i["policy_type"])
+        if i.get("carrier"):
+            ref_parts.append(i["carrier"])
+        files = att_by_item.get(i["id"], [])
+        groups[key].append({
+            "Item": i["description"],
+            "Coverage": " — ".join(ref_parts) if ref_parts else "",
+            "RFI": i.get("rfi_uid") or i.get("bundle_title") or "",
+            "Category": i.get("category") or "",
+            "Status": "Received" if i["received"] else "Outstanding",
+            "Received Date": (i.get("received_at") or "")[:10] if i["received"] else "",
+            "Attached File(s)": "\n".join(files),
+            "Notes / Response": i.get("notes") or "",
+        })
+
+    used_names: set[str] = set()
+    for key in sorted(groups.keys(), key=lambda k: (_KIND_ORDER[k[0]], k[1].lower())):
+        _, name = key
+        base = (name[:31] or "Sheet")
+        sheet_name = base
+        n = 2
+        while sheet_name in used_names:
+            suffix = f" ({n})"
+            sheet_name = f"{base[:31 - len(suffix)]}{suffix}"
+            n += 1
+        used_names.add(sheet_name)
+        _write_sheet(wb, sheet_name, groups[key], col_widths=_CLIENT_REQ_COL_WIDTHS)
 
     return _wb_to_bytes(wb)
 
