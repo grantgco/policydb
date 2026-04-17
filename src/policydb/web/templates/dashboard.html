@@ -27,6 +27,10 @@ if (sessionStorage.getItem('review-reminder-dismissed')) {
 </script>
 {% endif %}
 
+{% if timesheet_badge is defined and (timesheet_badge.flags or timesheet_badge.unreviewed_emails) %}
+  {% include "dashboard/_timesheet_card.html" %}
+{% endif %}
+
 {% if escalation_alerts is defined and escalation_alerts %}
 <!-- Tiered Escalation Alerts -->
 {% set critical = escalation_alerts | selectattr('escalation_tier', 'equalto', 'CRITICAL') | list %}

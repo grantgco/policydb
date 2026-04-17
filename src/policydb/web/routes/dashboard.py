@@ -24,6 +24,7 @@ from policydb.queries import (
     get_suggested_followups,
     full_text_search,
     should_show_review_reminder,
+    get_timesheet_badge,
 )
 from policydb.web.app import get_db, templates
 
@@ -158,6 +159,10 @@ def dashboard(request: Request, conn=Depends(get_db)):
     issues_widget = get_dashboard_issues_widget(conn, limit=3)
 
     hours_this_month = get_dashboard_hours_this_month(conn)
+    try:
+        timesheet_badge = get_timesheet_badge(conn)
+    except Exception:
+        timesheet_badge = {"flags": 0, "unreviewed_emails": 0}
     note_row = conn.execute("SELECT content, updated_at FROM user_notes WHERE id=1").fetchone()
 
     scratchpad_content = note_row["content"] if note_row else ""
@@ -200,6 +205,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
         "issues_widget": issues_widget,
         "hours_this_month": hours_this_month,
         "show_review_reminder": show_review_reminder,
+        "timesheet_badge": timesheet_badge,
     })
 
 
