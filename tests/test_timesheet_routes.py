@@ -293,3 +293,16 @@ def test_full_page_renders(client):
     assert resp.status_code == 200
     assert "timesheet-panel" in resp.text
     assert "<html" in resp.text.lower()
+
+
+# ---------------------------------------------------------------------------
+# Task 17: _activity_row.html + day-card rendering in _panel.html
+# ---------------------------------------------------------------------------
+
+def test_activity_row_appears_in_panel(client):
+    aid = _make_activity(client, subject="Loss run for Acme", hours=0.25)
+    resp = client.get("/timesheet/panel")
+    assert resp.status_code == 200
+    assert "Loss run for Acme" in resp.text
+    assert f'data-activity-id="{aid}"' in resp.text
+    assert "contenteditable" in resp.text
