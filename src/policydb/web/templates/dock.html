@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PolicyDB Dock</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/htmx.org@1.9.10"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'DM Sans', sans-serif; background: #F7F3EE; color: #3D3C37; margin: 0; }
+  .dock { max-width: 400px; margin: 0 auto; padding: 0.75rem; }
+  .dock-header { font-size: 0.6875rem; color: #9ca3af; text-transform: uppercase;
+                 font-weight: 600; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+  .dock-search { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #e5e7eb;
+                 border-radius: 0.5rem; font-size: 0.875rem; box-sizing: border-box;
+                 font-family: inherit; }
+  .dock-search:focus { outline: none; border-color: #0B4BFF;
+                       box-shadow: 0 0 0 1px #0B4BFF; }
+  .dock-results { list-style: none; padding: 0; margin: 0.75rem 0 0 0; }
+  .dock-row { display: flex; align-items: center; gap: 0.5rem;
+              padding: 0.5rem; border-radius: 0.375rem; cursor: pointer;
+              transition: background 0.08s; }
+  .dock-row:hover, .dock-row.selected { background: #ffffff;
+                                        box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+  .dock-row-main { display: flex; gap: 0.5rem; flex: 1; align-items: center;
+                   overflow: hidden; min-width: 0; }
+  .dock-type-badge { font-size: 0.875rem; flex-shrink: 0; }
+  .dock-name { font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis;
+               white-space: nowrap; flex: 1; min-width: 0; }
+  .dock-tag { font-family: 'JetBrains Mono', monospace; font-size: 0.6875rem;
+              background: #dbeafe; color: #1e40af; padding: 0.125rem 0.375rem;
+              border-radius: 0.25rem; flex-shrink: 0; white-space: nowrap; }
+  .dock-action, .dock-open { background: transparent; border: none;
+                             cursor: pointer; padding: 0.25rem; font-size: 0.875rem;
+                             text-decoration: none; color: inherit; flex-shrink: 0; }
+  .dock-action:hover, .dock-open:hover { background: #f3f4f6;
+                                         border-radius: 0.25rem; }
+  .flash-green { animation: flash 0.6s ease-out; }
+  @keyframes flash { 0% { background: #d1fae5; } 100% { background: transparent; } }
+  .dock-section-label { font-size: 0.6875rem; color: #9ca3af;
+                        text-transform: uppercase; font-weight: 600;
+                        letter-spacing: 0.05em; margin-top: 0.75rem; }
+  .dock-toast { position: fixed; bottom: 0.75rem; left: 0.75rem; right: 0.75rem;
+                padding: 0.5rem 0.75rem; border-radius: 0.375rem; font-size: 0.8125rem;
+                z-index: 50; box-shadow: 0 2px 6px rgba(0,0,0,0.12); }
+  .dock-toast.ok { background: #d1fae5; color: #065f46; }
+  .dock-toast.warn { background: #fef3c7; color: #78350f; }
+  .dock-toast.error { background: #fee2e2; color: #7f1d1d; }
+</style>
+</head>
+<body>
+<div class="dock">
+  <div class="dock-header">PolicyDB Dock</div>
+  <input
+    id="q"
+    class="dock-search"
+    type="search"
+    placeholder="Client, policy, issue&hellip;"
+    autofocus
+    autocomplete="off"
+    hx-get="/search/live?mode=dock"
+    hx-trigger="keyup changed delay:150ms, search"
+    hx-target="#results"
+    hx-swap="innerHTML"
+    name="q"
+  >
+  <div id="results"></div>
+  <div id="recents-wrap">
+    <div class="dock-section-label" id="recents-label" style="display:none;">Recent</div>
+    <ul id="recents" class="dock-results"></ul>
+  </div>
+</div>
+
+<script>
+  // Minimal toast helper — self-contained for the dock view.
+  function showToast(msg, tone) {
+    var existing = document.getElementById('dock-toast');
+    if (existing) existing.remove();
+    var t = document.createElement('div');
+    t.id = 'dock-toast';
+    t.className = 'dock-toast ' + (tone || 'ok');
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(function () { t.remove(); }, 2400);
+  }
+  window.showToast = showToast;
+</script>
+<script src="/static/dock.js"></script>
+</body>
+</html>
