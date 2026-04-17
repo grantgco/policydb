@@ -13,6 +13,7 @@ for issues/CN, and skips projects' own token in favor of their children.
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass
 from typing import Callable, Literal
@@ -84,9 +85,14 @@ def _issue_tokens(issue_uid: str) -> list[str]:
 
 
 def _cn_tokens(cn_number: str | None, client_id: int) -> list[str]:
-    """Client CN — CN-prefixed, no dashes. Falls back to C{client_id}."""
+    """Client CN — strips optional leading CN prefix (case-insensitive), then re-prefixes.
+
+    Falls back to C{client_id} if cn_number is empty or None.
+    Handles edge cases like "CNN123" correctly (not "N123").
+    """
     if cn_number and cn_number not in ("None", "none", ""):
-        cleaned = cn_number.lstrip("Cc").lstrip("Nn")
+        # Use same regex as build_ref_tag() in utils.py: ^[Cc][Nn]
+        cleaned = re.sub(r'^[Cc][Nn]', '', cn_number)
         return [f"CN{cleaned}"]
     return [f"C{client_id}"]
 
@@ -278,20 +284,35 @@ def _walk_program(
             "SELECT id FROM policies WHERE program_id = ?", (row["id"],),
         )
     ]
-    # Issues: those on member policies AND those on the program itself.
-    issue_rows = list(conn.execute(
+    # Issues on the program directly
+    issue_uids: list[str] = []
+    for r in conn.execute(
         "SELECT issue_uid FROM activity_log "
-        "WHERE (program_id = ? "
-        + (
-            f"OR policy_id IN ({','.join('?' * len(member_policy_ids))}) "
-            if member_policy_ids else ""
-        )
-        + ") AND item_kind = 'issue' AND issue_uid IS NOT NULL "
-        "AND (merged_into_id IS NULL)",
-        (row["id"], *member_policy_ids),
-    ))
-    for r in issue_rows:
-        tokens.extend(_issue_tokens(r["issue_uid"]))
+        "WHERE program_id = ? AND item_kind = 'issue' "
+        "AND issue_uid IS NOT NULL AND merged_into_id IS NULL",
+        (row["id"],),
+    ):
+        issue_uids.append(r["issue_uid"])
+
+    # Issues on member policies
+    if member_policy_ids:
+        placeholders = ",".join("?" * len(member_policy_ids))
+        for r in conn.execute(
+            f"SELECT issue_uid FROM activity_log "
+            f"WHERE policy_id IN ({placeholders}) AND item_kind = 'issue' "
+            f"AND issue_uid IS NOT NULL AND merged_into_id IS NULL",
+            member_policy_ids,
+        ):
+            issue_uids.append(r["issue_uid"])
+
+    # Dedup while preserving order
+    seen_issues: set[str] = set()
+    for uid in issue_uids:
+        if uid in seen_issues:
+            continue
+        seen_issues.add(uid)
+        tokens.extend(_issue_tokens(uid))
+
     # Member policies themselves
     if member_policy_ids:
         placeholders = ",".join("?" * len(member_policy_ids))
