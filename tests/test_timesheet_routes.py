@@ -368,3 +368,25 @@ def test_add_activity_fragment(client):
     assert resp.status_code == 200
     assert "activity_date" in resp.text
     assert "2026-04-15" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Task 20: Range toggle + close-out button in panel header
+# ---------------------------------------------------------------------------
+
+def test_panel_includes_range_toggle(client):
+    resp = client.get("/timesheet/panel")
+    assert "data-range-toggle" in resp.text
+    assert "Day" in resp.text
+    assert "Week" in resp.text
+    assert "Range" in resp.text
+
+
+def test_panel_includes_closeout_button_on_week(client):
+    resp = client.get("/timesheet/panel?kind=week")
+    assert "Close out week" in resp.text
+
+
+def test_panel_hides_closeout_button_on_day(client):
+    resp = client.get("/timesheet/panel?kind=day&start=2026-04-15&end=2026-04-15")
+    assert "Close out week" not in resp.text

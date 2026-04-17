@@ -17,6 +17,34 @@
         {% endif %}
       </div>
     </div>
+    <div class="flex items-center gap-2">
+      <div data-range-toggle class="inline-flex border border-stone-300 rounded overflow-hidden text-xs">
+        <button class="px-2 py-1 {% if payload.range.kind == 'day' %}bg-policydb-blue text-white{% endif %}"
+                hx-get="/timesheet/panel?kind=day"
+                hx-target="#timesheet-panel"
+                hx-swap="outerHTML"
+                hx-push-url="true">Day</button>
+        <button class="px-2 py-1 {% if payload.range.kind == 'week' %}bg-policydb-blue text-white{% endif %}"
+                hx-get="/timesheet/panel?kind=week"
+                hx-target="#timesheet-panel"
+                hx-swap="outerHTML"
+                hx-push-url="true">Week</button>
+        <button class="px-2 py-1 {% if payload.range.kind == 'range' %}bg-policydb-blue text-white{% endif %}"
+                onclick="const s=prompt('Start (YYYY-MM-DD)?', '{{ payload.range.start }}'); const e=prompt('End (YYYY-MM-DD)?', '{{ payload.range.end }}'); if (s&&e) htmx.ajax('GET', `/timesheet/panel?kind=range&start=${s}&end=${e}`, '#timesheet-panel');">
+          Range</button>
+      </div>
+      {% if payload.range.kind == 'week' and not payload.closeout.closed_at %}
+        <button class="text-xs bg-policydb-blue text-white rounded px-3 py-1"
+                hx-post="/timesheet/closeout"
+                hx-vals='{"week_start": "{{ payload.range.start }}"}'
+                hx-confirm="Close out this week? All un-touched items get marked reviewed."
+                hx-target="#timesheet-panel"
+                hx-swap="outerHTML"
+                hx-on::after-request="if(event.detail.successful) htmx.ajax('GET', '/timesheet/panel?kind=week&start={{ payload.range.start }}', '#timesheet-panel')">
+          Close out week
+        </button>
+      {% endif %}
+    </div>
   </header>
 
   {% if payload.closeout.closed_at %}
