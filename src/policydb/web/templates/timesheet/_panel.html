@@ -19,6 +19,10 @@
     </div>
   </header>
 
+  {% if payload.flags.silent_clients %}
+    {% include "timesheet/_flag_strip.html" %}
+  {% endif %}
+
   {% for day in payload.days %}
     <section class="day-card bg-white border border-stone-200 rounded-md p-3 mb-3 {% if day.is_low %}border-l-4 border-l-amber-500 bg-amber-50{% endif %}">
       <header class="flex justify-between items-center mb-2">

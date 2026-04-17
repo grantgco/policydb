@@ -306,3 +306,37 @@ def test_activity_row_appears_in_panel(client):
     assert "Loss run for Acme" in resp.text
     assert f'data-activity-id="{aid}"' in resp.text
     assert "contenteditable" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Task 18: _flag_strip.html
+# ---------------------------------------------------------------------------
+
+def test_flag_strip_appears_when_silent_clients_present(client):
+    from policydb.db import get_connection, next_policy_uid
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO clients (name, industry_segment, account_exec) VALUES ('Silent Corp', 'Tech', 'Grant')"
+    )
+    cid = cur.lastrowid
+    from datetime import date, timedelta
+    exp = (date.today() + timedelta(days=10)).isoformat()
+    puid = next_policy_uid(conn)
+    conn.execute(
+        """INSERT INTO policies (client_id, policy_uid, first_named_insured, policy_type,
+                                 expiration_date, is_opportunity, renewal_status)
+           VALUES (?, ?, 'Test', 'GL', ?, 0, 'In Progress')""",
+        (cid, puid, exp),
+    )
+    conn.commit()
+    conn.close()
+
+    resp = client.get("/timesheet/panel")
+    assert resp.status_code == 200
+    assert "Silent Corp" in resp.text
+    assert "silent" in resp.text.lower()
+
+
+def test_flag_strip_absent_when_no_silent_clients(client):
+    resp = client.get("/timesheet/panel")
+    assert "flag-strip" not in resp.text
