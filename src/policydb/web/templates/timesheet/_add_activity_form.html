@@ -1,0 +1,28 @@
+{#
+  Context: day (dict with .date), client_list (list of {id, name})
+#}
+<form class="add-activity-form flex flex-wrap gap-2 pt-2 mt-2 border-t border-dashed border-stone-300"
+      hx-post="/timesheet/activity"
+      hx-target="#timesheet-panel"
+      hx-swap="outerHTML"
+      hx-on::after-request="if(event.detail.successful) htmx.ajax('GET', '/timesheet/panel', '#timesheet-panel')">
+  <input type="hidden" name="activity_date" value="{{ day.date }}">
+  <select name="client_id" class="text-xs border rounded px-1 py-0.5" required>
+    <option value="">(client…)</option>
+    {% for c in client_list %}
+      <option value="{{ c.id }}">{{ c.name }}</option>
+    {% endfor %}
+  </select>
+  <select name="activity_type" class="text-xs border rounded px-1 py-0.5">
+    {% for t in ["Note", "Email", "Call", "Meeting", "Task"] %}
+      <option value="{{ t }}">{{ t }}</option>
+    {% endfor %}
+  </select>
+  <input name="subject" class="flex-1 text-xs border rounded px-1 py-0.5"
+         placeholder="What did you work on?" required>
+  <input name="duration_hours" class="w-14 text-xs border rounded px-1 py-0.5 text-right"
+         placeholder="h" inputmode="decimal">
+  <button class="text-xs bg-policydb-blue text-white rounded px-2 py-0.5">Add</button>
+  <button type="button" class="text-xs text-stone-500"
+          onclick="this.closest('.add-slot').innerHTML=''">Cancel</button>
+</form>

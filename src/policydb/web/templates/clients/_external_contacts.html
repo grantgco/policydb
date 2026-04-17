@@ -3,25 +3,31 @@
     <h2 class="font-semibold text-gray-900 text-sm">External Stakeholders
       <span class="normal-case font-normal text-gray-400 text-xs">— carrier reps, TPAs, outside counsel</span>
     </h2>
-    <button type="button" class="text-xs text-marsh hover:underline font-medium no-print"
-      onclick="if(window._externalContactsMatrix)window._externalContactsMatrix.createNewRow()">+ Add</button>
+    <div class="flex items-center gap-3 no-print">
+      <button type="button"
+        onclick="copyPolicyTable('/clients/{{ client.id }}/external/copy-table', this, '#external-contacts-tbody-{{ client.id }}')"
+        class="text-xs text-gray-400 hover:text-marsh"
+        title="Copy external stakeholders table to clipboard">Copy Table</button>
+      <button type="button" class="text-xs text-marsh hover:underline font-medium"
+        onclick="if(window._externalContactsMatrix)window._externalContactsMatrix.createNewRow()">+ Add</button>
+    </div>
   </div>
 
   <div class="overflow-x-auto">
-    <table class="w-full text-sm table-fixed">
+    <table class="w-full text-sm table-fixed" data-sortable>
       <colgroup>
         <col style="width:15%"><col style="width:12%"><col style="width:12%"><col style="width:14%">
         <col style="width:18%"><col style="width:13%"><col style="width:13%"><col style="width:28px">
       </colgroup>
       <thead>
         <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
-          <th class="px-3 py-2">Name</th>
-          <th class="px-3 py-2">Organization</th>
-          <th class="px-3 py-2">Role</th>
-          <th class="px-3 py-2">Notes</th>
-          <th class="px-3 py-2">Email</th>
-          <th class="px-3 py-2">Phone</th>
-          <th class="px-3 py-2">Mobile</th>
+          <th class="px-3 py-2" data-sort-key="name">Name</th>
+          <th class="px-3 py-2" data-sort-key="organization">Organization</th>
+          <th class="px-3 py-2" data-sort-key="role">Role</th>
+          <th class="px-3 py-2" data-sort-key="notes">Notes</th>
+          <th class="px-3 py-2" data-sort-key="email">Email</th>
+          <th class="px-3 py-2" data-sort-key="phone">Phone</th>
+          <th class="px-3 py-2" data-sort-key="mobile">Mobile</th>
           <th class="px-3 py-2"></th>
         </tr>
       </thead>
@@ -38,11 +44,13 @@
           </td>
           <td class="matrix-cell-combo px-3 py-2.5 cursor-pointer relative"
               data-field="organization"
+              data-sort-value="{{ c.organization or '' }}"
               data-options='{{ all_orgs | tojson }}'>
             <span class="cell-display text-gray-600 text-xs">{{ c.organization or '—' }}</span>
           </td>
           <td class="matrix-cell-combo px-3 py-2.5 cursor-pointer relative"
               data-field="role"
+              data-sort-value="{{ c.role or '' }}"
               data-options='{{ contact_roles | tojson }}'>
             <span class="cell-display">
               {% if c.role %}<span class="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{{ c.role }}</span>

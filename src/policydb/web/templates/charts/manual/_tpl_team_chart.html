@@ -394,7 +394,8 @@
         <input type="hidden" id="cfg-layout" name="cfg-layout" value="grid">
         <div class="tc-layout-seg" id="layout-btns">
           <button type="button" class="tc-layout-btn active" data-l="grid">Grid</button>
-          <button type="button" class="tc-layout-btn" data-l="grouped">Grouped</button>
+          <button type="button" class="tc-layout-btn" data-l="grouped-grid">Grouped Grid</button>
+          <button type="button" class="tc-layout-btn" data-l="grouped">Grouped List</button>
         </div>
       </div>
 
@@ -423,10 +424,15 @@
   <!-- Load from Client -->
   <div style="margin-top:1rem;">
     <div class="section-head midnight">Load from Client</div>
-    <div style="display:flex;align-items:center;gap:0.5rem;">
-      <button type="button" class="tc-btn-load" onclick="loadTeamFromClient(this)">Load Team</button>
-      <span style="font-size:0.72rem;color:#7B7974;">Select a client in the snapshot bar above, then click Load Team</span>
+    <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+      <div style="position:relative;flex:1;min-width:220px;">
+        <input type="text" id="team-client" placeholder="Search clients…" autocomplete="off"
+               style="width:100%;border:1px solid var(--mc-border);border-radius:3px;padding:0.38rem 0.55rem;font-family:'Noto Sans',sans-serif;font-size:0.83rem;color:var(--mc-text);background:white;">
+        <input type="hidden" id="team-client-id" value="">
+      </div>
+      <button type="button" class="tc-btn-load" onclick="loadTeamFromClient(this)" id="team-load-btn" disabled>Load Team</button>
     </div>
+    <div style="font-size:0.7rem;color:#7B7974;margin-top:0.35rem;">Pulls internal team contacts assigned to this client.</div>
   </div>
 
   <!-- Team Members -->
@@ -732,17 +738,55 @@
       .catch(function() { suggestions = []; buildSuggestions(); });
   }
 
+  // Return the unique list of current team groups (by the active groupBy field)
+  function currentGroupNames() {
+    var groupBy = (document.getElementById('cfg-group-by') || {}).value || 'assignment';
+    var seen = {};
+    var names = [];
+    members.forEach(function(m) {
+      var g = (m[groupBy] || '').trim();
+      if (g && !seen[g]) { seen[g] = true; names.push(g); }
+    });
+    names.sort(function(a, b) { return a.localeCompare(b); });
+    return names;
+  }
+
   function buildSuggestions() {
     var section = document.getElementById('suggestions-section');
     var list = document.getElementById('suggestions-list');
     if (!section || !list) return;
     if (!suggestions.length) { section.style.display = 'none'; return; }
     section.style.display = 'block';
-    list.innerHTML = suggestions.map(function(s) {
+
+    var existingGroups = currentGroupNames();
+    var datalistId = 'tc-groups-datalist';
+    var datalistHtml = '<datalist id="' + datalistId + '">' +
+      existingGroups.map(function(g) { return '<option value="' + esc(g) + '">'; }).join('') +
+      '</datalist>';
+
+    list.innerHTML = datalistHtml + suggestions.map(function(s) {
+      // Sensible default: first existing group if any, otherwise infer from
+      // the suggested role prefix ("Placement - …" → "Placement", "Underwriter - …" → "Markets")
+      var defaultGroup;
+      if (existingGroups.length) {
+        defaultGroup = existingGroups[0];
+      } else {
+        var role = (s.suggested_role || '').split(',')[0].trim();
+        var prefix = role.split(/\s*-\s*/)[0];
+        defaultGroup = /^under/i.test(prefix) ? 'Markets'
+                     : /^placement/i.test(prefix) ? 'Placement'
+                     : prefix || 'Markets';
+      }
       return '<div class="tc-suggestion-card" data-contact-id="' + s.contact_id + '">'
         + '<div class="tc-suggestion-name">' + esc(s.name) + '</div>'
         + '<div class="tc-suggestion-role">' + esc(s.suggested_role) + '</div>'
         + (s.email ? '<div style="font-size:0.65rem;color:#7B7974;margin-top:2px;">&#9993; ' + esc(s.email) + '</div>' : '')
+        + '<div style="display:flex;flex-direction:column;gap:0.2rem;margin-top:0.4rem;">'
+        + '  <label style="font-size:0.62rem;color:#92400E;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">Add to group</label>'
+        + '  <input type="text" list="' + datalistId + '" value="' + esc(defaultGroup) + '" '
+        +        'data-group-for="' + s.contact_id + '" placeholder="Pick or type a group" '
+        +        'style="border:1px solid #D97706;border-radius:3px;padding:0.28rem 0.45rem;font-family:\'Noto Sans\',sans-serif;font-size:0.75rem;color:#3D3C37;background:#fff;width:100%;">'
+        + '</div>'
         + '<div class="tc-suggestion-actions">'
         + '  <button class="tc-suggestion-confirm" onclick="confirmSuggestion(' + s.contact_id + ')">&#10003; Add to Team</button>'
         + '  <button class="tc-suggestion-dismiss" onclick="dismissSuggestion(' + s.contact_id + ')">&#10005;</button>'
@@ -754,18 +798,22 @@
   window.confirmSuggestion = function(contactId) {
     var clientId = document.getElementById('team-canvas').dataset.clientId;
     if (!clientId) return;
+    // Read the chosen group from the inline input — fall back to suggested_role
+    var groupInput = document.querySelector('[data-group-for="' + contactId + '"]');
+    var s = suggestions.find(function(x) { return x.contact_id === contactId; });
+    var chosenGroup = (groupInput && groupInput.value.trim()) || (s && s.suggested_role) || '';
+
     fetch('/charts/api/team/' + clientId + '/suggestions/' + contactId + '/confirm', { method: 'POST' })
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (!data.ok) return;
-        var s = suggestions.find(function(x) { return x.contact_id === contactId; });
         if (s) {
           members.push({
             id: nextId++,
             name: s.name,
             title: '',
-            role: '',
-            assignment: s.suggested_role,
+            role: 'Placement Colleague',
+            assignment: chosenGroup,
             phone: s.phone || '',
             email: s.email || '',
             mobile: s.mobile || '',
@@ -795,14 +843,14 @@
 
   // ── Load from Client ──────────────────────────────────────────────────
   window.loadTeamFromClient = function(btn) {
-    // Find the client ID from the snapshot bar's client combobox
-    var clientInput = document.getElementById('snapshot-client');
-    var clientIdInput = document.getElementById('snapshot-client-id');
-    if (!clientIdInput || !clientIdInput.value) {
-      ManualChart.toast('Select a client in the snapshot bar first', 'error');
+    var clientInput = document.getElementById('team-client');
+    var clientIdInput = document.getElementById('team-client-id');
+    var cid = clientIdInput && clientIdInput.value;
+    if (!cid || cid === '0') {
+      ManualChart.toast('Pick a client first', 'error');
       return;
     }
-    var clientId = clientIdInput.value;
+    var clientId = cid;
     var clientName = clientInput ? clientInput.value : 'this client';
 
     if (members.length > 0) {
@@ -812,10 +860,6 @@
     fetch('/charts/api/team/' + clientId)
       .then(function(r) { return r.json(); })
       .then(function(data) {
-        if (!data.length) {
-          ManualChart.toast('No internal team contacts found for ' + clientName, 'error');
-          return;
-        }
         members = data.map(function(d, i) {
           return {
             id: i + 1,
@@ -834,10 +878,15 @@
         serializeState();
         buildMemberEditor();
         buildCanvas();
-        // Store clientId for suggestions and load them
+        // Store clientId for suggestions and load them — even if no internal team exists,
+        // the client may have placement colleagues the user wants to promote.
         document.getElementById('team-canvas').dataset.clientId = clientId;
         loadSuggestions();
-        ManualChart.toast('Loaded ' + members.length + ' team members from ' + clientName, 'success');
+        if (members.length) {
+          ManualChart.toast('Loaded ' + members.length + ' team members from ' + clientName, 'success');
+        } else {
+          ManualChart.toast('No internal team yet for ' + clientName + ' — check suggestions below', 'info');
+        }
       })
       .catch(function() {
         ManualChart.toast('Failed to load team data', 'error');
@@ -919,7 +968,7 @@
 
     // Header (compact)
     if (showTitle || showSubtitle) {
-      html += '<div style="padding:16px 28px 12px;border-bottom:1px solid #e8e6e0;flex-shrink:0;">';
+      html += '<div style="padding:16px 36px 12px;border-bottom:1px solid #e8e6e0;flex-shrink:0;">';
       if (showTitle && title) {
         html += '<div style="font-family:\'Noto Serif\',serif;font-size:18px;color:#000F47;line-height:1.2;">' + esc(title) + '</div>';
       }
@@ -933,6 +982,8 @@
       html += '<div style="flex:1;display:flex;align-items:center;justify-content:center;font-size:13px;color:#B9B6B1;">No team members added yet</div>';
     } else if (layout === 'grid') {
       html += buildGridLayout(accentColor, showContact, showNotes);
+    } else if (layout === 'grouped-grid') {
+      html += buildGroupedGridLayout(accentColor, showContact, showNotes);
     } else {
       html += buildGroupedLayout(accentColor, showContact, showNotes);
     }
@@ -965,7 +1016,7 @@
     var n = members.length;
     var cols = n >= 11 ? 5 : n >= 7 ? 4 : n >= 4 ? 3 : n >= 2 ? 2 : 1;
     var sz = cardSizes(n);
-    var html = '<div style="flex:1;padding:14px 24px 16px;display:grid;grid-template-columns:repeat(' + cols + ',minmax(0,1fr));gap:' + sz.gap + ';align-content:start;overflow:hidden;">';
+    var html = '<div style="flex:1;padding:14px 36px 18px;display:grid;grid-template-columns:repeat(' + cols + ',minmax(0,1fr));gap:' + sz.gap + ';align-content:start;overflow:hidden;">';
     members.forEach(function(m) {
       html += buildCardHtml(m, accentColor, true, showContact, showNotes, sz);
     });
@@ -973,19 +1024,65 @@
     return html;
   }
 
-  function buildGroupedLayout(accentColor, showContact, showNotes) {
+  // Groups helper — returns {groups: {name: [members]}, order: [name, ...]}
+  function groupMembers() {
     var groupBy = document.getElementById('cfg-group-by').value || 'assignment';
-    var n = members.length;
     var groups = {};
-    var groupOrder = [];
+    var order = [];
     members.forEach(function(m) {
-      var group = m[groupBy] || 'Unassigned';
-      if (!groups[group]) {
-        groups[group] = [];
-        groupOrder.push(group);
-      }
-      groups[group].push(m);
+      var g = m[groupBy] || 'Unassigned';
+      if (!groups[g]) { groups[g] = []; order.push(g); }
+      groups[g].push(m);
     });
+    return { groups: groups, order: order };
+  }
+
+  // Grouped Grid — group headers with a card grid under each group
+  function buildGroupedGridLayout(accentColor, showContact, showNotes) {
+    var gm = groupMembers();
+    var n = members.length;
+    var nGroups = gm.order.length;
+    var sz = cardSizes(n);
+    var hdrPx = n <= 8 ? 10 : 9;
+    var hdrPad = '4px 10px';
+
+    // Two-column outer layout when there are enough groups
+    var useTwoCols = nGroups >= 3;
+    var html = '<div style="flex:1;padding:14px 36px 18px;overflow:hidden;' +
+      (useTwoCols ? 'display:grid;grid-template-columns:1fr 1fr;gap:14px 18px;align-content:start;' : 'display:flex;flex-direction:column;gap:10px;') +
+      '">';
+
+    // Per-group card grid columns — tighter when we're in 2-col outer layout
+    gm.order.forEach(function(group) {
+      var count = gm.groups[group].length;
+      var cardCols;
+      if (useTwoCols) {
+        cardCols = count >= 4 ? 2 : count >= 2 ? 2 : 1;
+      } else {
+        cardCols = count >= 7 ? 4 : count >= 4 ? 3 : count >= 2 ? 2 : 1;
+      }
+
+      html += '<div style="min-width:0;">';
+      html += '<div style="padding:' + hdrPad + ';border-radius:2px;margin-bottom:6px;' +
+        'font-family:\'Noto Sans\',sans-serif;font-size:' + hdrPx + 'px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#fff;background:' + accentColor + ';">' +
+        esc(group) + '</div>';
+      html += '<div style="display:grid;grid-template-columns:repeat(' + cardCols + ',minmax(0,1fr));gap:' + sz.gap + ';">';
+      gm.groups[group].forEach(function(m) {
+        // Hide the redundant group badge on the card — the group header already shows it
+        html += buildCardHtml(m, accentColor, false, showContact, showNotes, sz);
+      });
+      html += '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function buildGroupedLayout(accentColor, showContact, showNotes) {
+    var gm = groupMembers();
+    var groups = gm.groups;
+    var groupOrder = gm.order;
+    var n = members.length;
 
     // Responsive sizing for grouped rows
     var namePx = n <= 6 ? 13 : n <= 10 ? 11 : 10;
@@ -999,8 +1096,8 @@
     var nGroups = groupOrder.length;
     var useTwoCols = nGroups >= 4;
 
-    var html = '<div style="flex:1;padding:10px 24px 14px;overflow:hidden;' +
-      (useTwoCols ? 'display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;align-content:start;' : '') +
+    var html = '<div style="flex:1;padding:10px 36px 14px;overflow:hidden;' +
+      (useTwoCols ? 'display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;align-content:start;' : '') +
       '">';
 
     groupOrder.forEach(function(group, gi) {
@@ -1044,12 +1141,35 @@
     document.querySelectorAll('#layout-btns .tc-layout-btn').forEach(function(b) {
       b.classList.toggle('active', b.getAttribute('data-l') === layout);
     });
-    document.getElementById('group-by-row').style.display = layout === 'grouped' ? '' : 'none';
+    document.getElementById('group-by-row').style.display =
+      (layout === 'grouped' || layout === 'grouped-grid') ? '' : 'none';
     serializeState();
     buildSwatches();
     buildMemberEditor();
     buildCanvas();
   };
+
+  // ── Client picker (dedicated autocomplete, decoupled from snapshot bar) ─
+  function syncLoadBtn() {
+    var idEl = document.getElementById('team-client-id');
+    var btn = document.getElementById('team-load-btn');
+    var v = idEl && idEl.value;
+    btn.disabled = !v || v === '0';
+  }
+
+  if (typeof initClientAutocomplete === 'function') {
+    initClientAutocomplete('team-client', 'team-client-id', {
+      onSelect: function(item) {
+        syncLoadBtn();
+        // Touch-once: tag the snapshot with the same client so Save carries it.
+        var snapName = document.getElementById('snapshot-client');
+        var snapId   = document.getElementById('snapshot-client-id');
+        if (snapName) snapName.value = item.name;
+        if (snapId)   snapId.value   = item.id;
+      }
+    });
+    document.getElementById('team-client').addEventListener('input', syncLoadBtn);
+  }
 
   // ── Init ──────────────────────────────────────────────────────────────
   initLayoutButtons();
@@ -1057,10 +1177,22 @@
   buildSwatches();
   buildMemberEditor();
   buildCanvas();
+
+  // If a snapshot was restored with a client tag, hydrate the team picker
+  // from it so Load Team is ready immediately.
+  var snapClientName = document.getElementById('snapshot-client');
+  var snapClientId   = document.getElementById('snapshot-client-id');
+  var teamClient     = document.getElementById('team-client');
+  var teamClientId   = document.getElementById('team-client-id');
+  if (teamClient && snapClientId && snapClientId.value && !teamClient.value) {
+    teamClient.value   = snapClientName ? snapClientName.value : '';
+    teamClientId.value = snapClientId.value;
+    syncLoadBtn();
+  }
+
   // Load suggestions if snapshot restored with a client
-  var initClientId = document.getElementById('snapshot-client-id');
-  if (initClientId && initClientId.value) {
-    document.getElementById('team-canvas').dataset.clientId = initClientId.value;
+  if (snapClientId && snapClientId.value) {
+    document.getElementById('team-canvas').dataset.clientId = snapClientId.value;
     loadSuggestions();
   }
 })();

@@ -19,7 +19,7 @@
     </span>
     <div class="ml-auto flex items-center gap-3 no-print">
       <button type="button"
-         onclick="event.stopPropagation(); copyPolicyTable('/clients/{{ client.id }}/projects/pipeline/copy-table', this)"
+         onclick="event.stopPropagation(); copyPolicyTable('/clients/{{ client.id }}/projects/pipeline/copy-table', this, '#pp-tbody')"
          class="text-xs text-marsh hover:underline">Copy Table</button>
       <a href="/clients/{{ client.id }}/projects/pipeline/export?format=xlsx"
          onclick="event.stopPropagation()"

@@ -293,7 +293,10 @@ def _resolve_contact_for_email(
         candidates: list[str] = []
         candidates.extend(r for r in recip_addrs if not _is_internal_address(r))
         candidates.extend(r for r in recip_addrs if _is_internal_address(r))
-        if sender_addr:
+        # Sent mail's correspondent is on the recipient side — never the
+        # sender. Only fall back to sender if it's external (e.g. delegated
+        # or shared-mailbox scenarios where the "user" isn't internal).
+        if sender_addr and not _is_internal_address(sender_addr):
             candidates.append(sender_addr)
     else:
         candidates = []
@@ -521,10 +524,11 @@ def _resolve_contacts_for_email(
 ) -> dict:
     """Resolve sender + every recipient to known contacts.
 
-    The AppleScript bridge collapses ``to`` and ``cc`` into one ``recipients``
-    list, so everyone who wasn't the sender is tagged as role ``'to'``. That's
-    good enough for "who was on this email" — we lose the TO/CC distinction
-    but keep the participant set.
+    When the email dict carries ``to_recipients`` / ``cc_recipients`` as
+    separate lists (post-outlook.py update), they're tagged with role
+    ``'to'`` and ``'cc'`` respectively. Legacy callers that only provide
+    the combined ``recipients`` list still work — everything falls into
+    the ``'to'`` role, matching pre-update behavior.
 
     Returns::
 
@@ -555,18 +559,30 @@ def _resolve_contacts_for_email(
         entries.append((from_cid, "from"))
         seen.add((from_cid, "from"))
 
-    for addr in (email.get("recipients") or []):
-        row = lookup(addr)
-        if not row:
-            continue
-        key = (row["id"], "to")
-        if key in seen:
-            continue
-        # Don't re-tag the sender as 'to' if they appear in recipients too
-        if row["id"] == from_cid:
-            continue
-        entries.append(key)
-        seen.add(key)
+    # Prefer the split TO/CC lists when the caller supplies them; fall back
+    # to the combined `recipients` field (legacy code paths).
+    to_addrs = email.get("to_recipients")
+    cc_addrs = email.get("cc_recipients")
+    if to_addrs is None and cc_addrs is None:
+        to_addrs = email.get("recipients") or []
+        cc_addrs = []
+
+    def tag_role(addrs, role):
+        for addr in (addrs or []):
+            row = lookup(addr)
+            if not row:
+                continue
+            # Don't re-tag the sender as to/cc if they appear in recipients too.
+            if row["id"] == from_cid:
+                continue
+            key = (row["id"], role)
+            if key in seen:
+                continue
+            entries.append(key)
+            seen.add(key)
+
+    tag_role(to_addrs, "to")
+    tag_role(cc_addrs, "cc")
 
     return {"from_cid": from_cid, "from_name": from_name, "entries": entries}
 
@@ -1901,6 +1917,13 @@ def backfill_email_contacts(conn: sqlite3.Connection) -> dict:
                    WHERE id = ?""",
                 (contact_id, contact_person, row["id"]),
             )
+            # Mirror the live sync path: also tag every known participant in
+            # the activity_contacts junction so the "who was on this email"
+            # view matches what a freshly-synced activity looks like.
+            participants = _resolve_contacts_for_email(
+                conn, {"sender": sender, "recipients": recipients},
+            )
+            _link_activity_contacts(conn, row["id"], participants["entries"])
             stats["linked"] += 1
         elif contact_person and not row["contact_person"]:
             # Even without a contact row, fill in a label so the UI isn't blank.

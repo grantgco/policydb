@@ -354,6 +354,17 @@ class PolicyImporter:
             deductible = _parse_money(row.get("deductible", "0"))
             commission_rate = _parse_money(row.get("commission_rate", "0"))
             prior_premium = _parse_money(row.get("prior_premium", "0")) or None
+            attachment_point = _parse_money(row.get("attachment_point", "0")) or None
+
+            # If attachment_point > 0, this row is by definition an excess layer,
+            # not a primary — auto-pick "Excess" when layer_position is blank.
+            raw_lp = (row.get("layer_position") or "").strip()
+            if raw_lp:
+                layer_position = raw_lp
+            elif attachment_point and attachment_point > 0:
+                layer_position = "Excess"
+            else:
+                layer_position = "Primary"
 
             self.conn.execute(
                 """INSERT INTO policies
@@ -362,8 +373,8 @@ class PolicyImporter:
                     description, coverage_form, layer_position, tower_group, is_standalone,
                     underwriter_name, underwriter_contact,
                     renewal_status, commission_rate, prior_premium, account_exec, notes,
-                    access_point)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    access_point, attachment_point)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     uid,
                     client_id,
@@ -377,7 +388,7 @@ class PolicyImporter:
                     deductible or None,
                     description,
                     row.get("coverage_form") or None,
-                    row.get("layer_position") or "Primary",
+                    layer_position,
                     row.get("tower_group") or None,
                     _parse_bool(row.get("is_standalone", "0")),
                     row.get("underwriter_name") or None,
@@ -388,6 +399,7 @@ class PolicyImporter:
                     account_exec,
                     row.get("notes") or None,
                     row.get("access_point") or None,
+                    attachment_point,
                 ),
             )
 

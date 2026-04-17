@@ -1,0 +1,31 @@
+{#
+  Context: timesheet_thresholds dict (may be empty → defaults apply).
+#}
+<section class="mb-6">
+  <h3 class="text-lg font-serif text-policydb-midnight mb-2">Timesheet Thresholds</h3>
+  <form hx-post="/settings/timesheet-thresholds"
+        hx-target="#ts-threshold-status"
+        hx-swap="innerHTML">
+    <div class="grid grid-cols-3 gap-3 text-sm">
+      <label>Low-hour day (hours)
+        <input name="low_day_threshold_hours" type="number" step="0.1" min="0" max="24"
+               value="{{ timesheet_thresholds.low_day_threshold_hours|default(4.0) }}"
+               class="mt-1 w-full border rounded px-2 py-1">
+      </label>
+      <label>Silence renewal window (days)
+        <input name="silence_renewal_window_days" type="number" step="1" min="1" max="365"
+               value="{{ timesheet_thresholds.silence_renewal_window_days|default(30) }}"
+               class="mt-1 w-full border rounded px-2 py-1">
+      </label>
+      <label>Range cap (days)
+        <input name="range_cap_days" type="number" step="1" min="7" max="400"
+               value="{{ timesheet_thresholds.range_cap_days|default(92) }}"
+               class="mt-1 w-full border rounded px-2 py-1">
+      </label>
+    </div>
+    <div class="mt-2 flex items-center gap-3">
+      <button class="text-xs bg-policydb-blue text-white rounded px-3 py-1">Save</button>
+      <span id="ts-threshold-status"></span>
+    </div>
+  </form>
+</section>

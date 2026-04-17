@@ -1,5 +1,5 @@
 {# Program row for the renewal pipeline — rendered when p._is_program is True #}
-<tr id="pgm-row-{{ p.program_uid }}" class="hover:bg-indigo-50/30 border-l-2 border-indigo-400 bg-indigo-50/10 text-xs">
+<tr id="pgm-row-{{ p.program_uid }}" data-row-id="program:{{ p.program_uid }}" class="hover:bg-indigo-50/30 border-l-2 border-indigo-400 bg-indigo-50/10 text-xs">
   <td class="px-2 py-1.5 w-8">
     <input type="checkbox" class="renewal-check rounded border-gray-300"
       value="{{ p.program_uid }}" data-subject-type="program"

@@ -775,9 +775,9 @@ def compliance_index(client_id: int, request: Request, conn=Depends(get_db)):
 
 
 @router.get("/client/{client_id}/copy-table")
-def compliance_copy_table(client_id: int, conn=Depends(get_db)):
+def compliance_copy_table(client_id: int, order: str | None = None, conn=Depends(get_db)):
     """Return HTML + plain-text compliance matrix for clipboard copy."""
-    from policydb.email_templates import build_generic_table
+    from policydb.email_templates import build_generic_table, apply_row_order
     data = get_client_compliance_data(conn, client_id)
     rows = []
     for loc in data["locations"]:
@@ -787,6 +787,7 @@ def compliance_copy_table(client_id: int, conn=Depends(get_db)):
             # Trim timestamp to date for a cleaner column
             reviewed_date = reviewed_at.split("T")[0] if reviewed_at else ""
             rows.append({
+                "row_id": f"{loc.get('project', {}).get('id', '')}:{line}",
                 "location": loc_name,
                 "coverage_line": gov.get("coverage_line") or line,
                 "required_limit": gov.get("required_limit"),
@@ -797,6 +798,7 @@ def compliance_copy_table(client_id: int, conn=Depends(get_db)):
                 "reviewed": reviewed_date,
                 "reviewer": gov.get("reviewed_by") or "",
             })
+    rows = apply_row_order(rows, order, id_key="row_id")
     columns = [
         ("location", "Location", False),
         ("coverage_line", "Coverage Line", False),

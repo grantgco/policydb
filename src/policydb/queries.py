@@ -1230,6 +1230,26 @@ def get_dashboard_hours_this_month(conn: sqlite3.Connection) -> float:
     return float(row["t"])
 
 
+def get_timesheet_badge(conn: sqlite3.Connection) -> dict:
+    """Dashboard badge counts for the current week.
+
+    Returns {flags: int, unreviewed_emails: int} — 0 for both means 'hide card'.
+    flags is the distinct-bucket count; unreviewed_emails broken out separately
+    so the card can say 'Review this week (3 flags, 7 emails)'.
+    """
+    from datetime import date, timedelta
+    from policydb.timesheet import build_timesheet_payload
+
+    today = date.today()
+    start = today - timedelta(days=today.weekday())
+    end = start + timedelta(days=6)
+    payload = build_timesheet_payload(conn, start=start, end=end)
+    return {
+        "flags": int(payload["totals"]["flag_count"]),
+        "unreviewed_emails": int(payload["flags"]["unreviewed_emails"]),
+    }
+
+
 def get_client_total_hours(conn: sqlite3.Connection, client_id: int) -> float:
     """Total hours logged for a client (all time)."""
     row = conn.execute(

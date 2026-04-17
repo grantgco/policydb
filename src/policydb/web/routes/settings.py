@@ -270,6 +270,7 @@ def _build_tab_context(tab: str, conn) -> dict:
 
     elif tab == "anomalies":
         ctx["thresholds"] = cfg.get("anomaly_thresholds", {})
+        ctx["timesheet_thresholds"] = cfg.get("timesheet_thresholds", {})
 
     elif tab == "database":
         ctx["logo_exists"] = Path(cfg.get("report_logo_path", "")).exists()
@@ -432,6 +433,25 @@ def save_anomaly_thresholds(
     }
     full = dict(cfg.load_config())
     full["anomaly_thresholds"] = thresholds
+    cfg.save_config(full)
+    cfg.reload_config()
+    return HTMLResponse('<span class="text-green-600 text-xs font-medium">Saved</span>')
+
+
+@router.post("/timesheet-thresholds", response_class=HTMLResponse)
+def save_timesheet_thresholds(
+    low_day_threshold_hours: float = Form(4.0),
+    silence_renewal_window_days: int = Form(30),
+    range_cap_days: int = Form(92),
+):
+    """Save timesheet review thresholds."""
+    thresholds = {
+        "low_day_threshold_hours": float(low_day_threshold_hours),
+        "silence_renewal_window_days": int(silence_renewal_window_days),
+        "range_cap_days": int(range_cap_days),
+    }
+    full = dict(cfg.load_config())
+    full["timesheet_thresholds"] = thresholds
     cfg.save_config(full)
     cfg.reload_config()
     return HTMLResponse('<span class="text-green-600 text-xs font-medium">Saved</span>')

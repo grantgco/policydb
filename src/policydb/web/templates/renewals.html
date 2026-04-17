@@ -23,7 +23,7 @@
       <span class="border-l border-gray-200 h-6 mx-1"></span>
       {%- set export_qs = 'window=' ~ window ~ '&urgency=' ~ urgency ~ '&status=' ~ (status | urlencode) ~ '&client_id=' ~ (client_id or 0) -%}
       <button type="button"
-        onclick="copyPolicyTable('/renewals/copy-table?{{ export_qs }}', this)"
+        onclick="copyPolicyTable('/renewals/copy-table?{{ export_qs }}', this, '#renewals-table tbody')"
         class="border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">Copy Table</button>
       <a href="/renewals/export?{{ export_qs }}&fmt=csv" class="border border-gray-300 hover:border-marsh text-gray-700 hover:text-marsh text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">CSV ↓</a>
       <a href="/renewals/export?{{ export_qs }}&fmt=xlsx" class="border border-green-600 hover:bg-green-600 text-green-700 hover:text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">XLSX ↓</a>
