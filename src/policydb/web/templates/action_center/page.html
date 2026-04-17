@@ -88,6 +88,9 @@
                 <span class="tab-badge" style="background:#f59e0b;color:white">{{ health_incomplete }}</span>
               {% endif %}
             </button>
+            <button class="tab-btn-dropdown" data-tab="timesheet" data-tab-url="/action-center/timesheet">
+              Timesheet
+            </button>
           </div>
         </div>
       </div>
@@ -115,6 +118,8 @@
           {% include "action_center/_activity_review.html" %}
         {% elif initial_tab == 'data-health' %}
           {% include "action_center/_data_health.html" %}
+        {% elif initial_tab == 'timesheet' %}
+          {% include "timesheet/_panel.html" %}
         {% endif %}
       </div>
     </div>

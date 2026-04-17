@@ -1,0 +1,81 @@
+{#
+  Context: payload (from build_timesheet_payload)
+#}
+<div id="timesheet-panel"
+     data-range-kind="{{ payload.range.kind }}"
+     data-range-start="{{ payload.range.start }}"
+     data-range-end="{{ payload.range.end }}">
+
+  <header class="flex justify-between items-center mb-4 pb-2 border-b border-stone-200">
+    <div>
+      <div class="text-xs text-stone-500">{{ payload.range.label }}</div>
+      <div class="text-sm">
+        <span class="font-mono">{{ "%.1f"|format(payload.totals.total_hours) }}h</span>
+        <span class="text-stone-500 ml-2">{{ payload.totals.activity_count }} activities</span>
+        {% if payload.totals.flag_count %}
+          <span class="text-amber-700 ml-2">· {{ payload.totals.flag_count }} flags</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <div data-range-toggle class="inline-flex border border-stone-300 rounded overflow-hidden text-xs">
+        <button class="px-2 py-1 {% if payload.range.kind == 'day' %}bg-policydb-blue text-white{% endif %}"
+                hx-get="/timesheet/panel?kind=day"
+                hx-target="#timesheet-panel"
+                hx-swap="outerHTML"
+                hx-push-url="true">Day</button>
+        <button class="px-2 py-1 {% if payload.range.kind == 'week' %}bg-policydb-blue text-white{% endif %}"
+                hx-get="/timesheet/panel?kind=week"
+                hx-target="#timesheet-panel"
+                hx-swap="outerHTML"
+                hx-push-url="true">Week</button>
+        <button class="px-2 py-1 {% if payload.range.kind == 'range' %}bg-policydb-blue text-white{% endif %}"
+                onclick="const s=prompt('Start (YYYY-MM-DD)?', '{{ payload.range.start }}'); const e=prompt('End (YYYY-MM-DD)?', '{{ payload.range.end }}'); if (s&&e) htmx.ajax('GET', `/timesheet/panel?kind=range&start=${s}&end=${e}`, '#timesheet-panel');">
+          Range</button>
+      </div>
+      {% if payload.range.kind == 'week' and not payload.closeout.closed_at %}
+        <button class="text-xs bg-policydb-blue text-white rounded px-3 py-1"
+                hx-post="/timesheet/closeout"
+                hx-vals='{"week_start": "{{ payload.range.start }}"}'
+                hx-confirm="Close out this week? All un-touched items get marked reviewed."
+                hx-target="#timesheet-panel"
+                hx-swap="outerHTML"
+                hx-on::after-request="if(event.detail.successful) htmx.ajax('GET', '/timesheet/panel?kind=week&start={{ payload.range.start }}', '#timesheet-panel')">
+          Close out week
+        </button>
+      {% endif %}
+    </div>
+  </header>
+
+  {% if payload.closeout.closed_at %}
+    {% include "timesheet/_closeout_badge.html" %}
+  {% endif %}
+
+  {% if payload.flags.silent_clients %}
+    {% include "timesheet/_flag_strip.html" %}
+  {% endif %}
+
+  {% for day in payload.days %}
+    <section class="day-card bg-white border border-stone-200 rounded-md p-3 mb-3 {% if day.is_low %}border-l-4 border-l-amber-500 bg-amber-50{% endif %}">
+      <header class="flex justify-between items-center mb-2">
+        <span class="text-sm font-medium">{{ day.label }}</span>
+        <span class="text-xs font-mono {% if day.is_low %}text-amber-700{% else %}text-stone-600{% endif %}">
+          {{ "%.1f"|format(day.total_hours) }}h
+        </span>
+      </header>
+      {% for activity in day.activities %}
+        {% include "timesheet/_activity_row.html" %}
+      {% endfor %}
+      {% if not day.activities %}
+        <div class="text-xs text-stone-400">No activity logged</div>
+      {% endif %}
+      <div class="add-slot"></div>
+      <button class="add-trigger text-xs text-stone-500 mt-1 hover:text-policydb-blue"
+              hx-get="/timesheet/activity/new?date={{ day.date }}"
+              hx-target="closest .day-card .add-slot"
+              hx-swap="innerHTML">
+        ➕ Add activity for {{ day.label }}
+      </button>
+    </section>
+  {% endfor %}
+</div>
