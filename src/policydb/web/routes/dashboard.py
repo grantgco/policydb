@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -162,6 +165,7 @@ def dashboard(request: Request, conn=Depends(get_db)):
     try:
         timesheet_badge = get_timesheet_badge(conn)
     except Exception:
+        logger.warning("get_timesheet_badge failed; hiding dashboard card", exc_info=True)
         timesheet_badge = {"flags": 0, "unreviewed_emails": 0}
     note_row = conn.execute("SELECT content, updated_at FROM user_notes WHERE id=1").fetchone()
 

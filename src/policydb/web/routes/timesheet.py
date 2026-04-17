@@ -124,12 +124,11 @@ def post_reopen(closeout_id: int, conn=Depends(get_db)):
 @router.get("/activity/new", response_class=HTMLResponse)
 def get_new_activity_form(
     request: Request,
-    date: str = Query(...),
+    date_str: str = Query(..., alias="date"),
     conn=Depends(get_db),
 ):
-    from datetime import date as _date
     try:
-        _date.fromisoformat(date)
+        date.fromisoformat(date_str)
     except ValueError:
         raise HTTPException(400, "Invalid date")
     clients = conn.execute(
@@ -139,7 +138,7 @@ def get_new_activity_form(
         "timesheet/_add_activity_form.html",
         {
             "request": request,
-            "day": {"date": date},
+            "day": {"date": date_str},
             "client_list": [dict(r) for r in clients],
         },
     )
@@ -227,9 +226,8 @@ def patch_activity(
         (row["activity_date"],),
     ).fetchone()["h"]
 
-    formatted = (
-        f"{round(float(duration_hours), 2):g}" if duration_hours is not None else None
-    )
+    # Return the value actually stored (rounded to 0.1), so the UI flash matches the DB.
+    formatted = f"{rounded:g}" if duration_hours is not None else None
 
     return JSONResponse({
         "ok": True,

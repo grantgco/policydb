@@ -66,6 +66,9 @@
       {% for activity in day.activities %}
         {% include "timesheet/_activity_row.html" %}
       {% endfor %}
+      {% if not day.activities %}
+        <div class="text-xs text-stone-400">No activity logged</div>
+      {% endif %}
       <div class="add-slot"></div>
       <button class="add-trigger text-xs text-stone-500 mt-1 hover:text-policydb-blue"
               hx-get="/timesheet/activity/new?date={{ day.date }}"
@@ -73,9 +76,6 @@
               hx-swap="innerHTML">
         ➕ Add activity for {{ day.label }}
       </button>
-      {% if not day.activities %}
-        <div class="text-xs text-stone-400">No activity logged</div>
-      {% endif %}
     </section>
   {% endfor %}
 </div>
