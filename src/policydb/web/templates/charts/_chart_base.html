@@ -20,7 +20,12 @@
 <div class="chart-content">
   <div class="flex items-start justify-between mb-4">
     <div>
-      <div class="chart-title">{{ title }}</div>
+      <div class="chart-title chart-title-editable"
+           contenteditable="true"
+           spellcheck="false"
+           data-default-title="{{ title }}"
+           onblur="ChartTitle.save(this)"
+           onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">{{ title }}</div>
       {% if subtitle %}<div class="chart-subtitle">{{ subtitle }}</div>{% endif %}
     </div>
     <button class="chart-export-btn no-print text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1.5 rounded-lg transition-colors"
