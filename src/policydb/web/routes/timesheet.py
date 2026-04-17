@@ -190,3 +190,13 @@ def post_activity(
     )
     conn.commit()
     return JSONResponse({"ok": True, "id": cur.lastrowid}, status_code=201)
+
+
+@router.delete("/activity/{activity_id}")
+def delete_activity(activity_id: int, conn=Depends(get_db)):
+    row = conn.execute("SELECT id FROM activity_log WHERE id=?", (activity_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Activity not found")
+    conn.execute("DELETE FROM activity_log WHERE id=?", (activity_id,))
+    conn.commit()
+    return Response(status_code=204)

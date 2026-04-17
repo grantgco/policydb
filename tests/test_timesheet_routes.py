@@ -193,3 +193,24 @@ def test_post_activity_requires_client(client):
         data={"activity_date": "2026-04-15", "subject": "nope"},
     )
     assert resp.status_code in (400, 422)
+
+
+# ---------------------------------------------------------------------------
+# Task 13: DELETE /activity/{id}
+# ---------------------------------------------------------------------------
+
+def test_delete_activity_removes_row(client):
+    aid = _make_activity(client)
+    resp = client.delete(f"/timesheet/activity/{aid}")
+    assert resp.status_code in (200, 204)
+
+    from policydb.db import get_connection
+    conn = get_connection()
+    row = conn.execute("SELECT 1 FROM activity_log WHERE id=?", (aid,)).fetchone()
+    assert row is None
+    conn.close()
+
+
+def test_delete_activity_404_on_missing(client):
+    resp = client.delete("/timesheet/activity/999999")
+    assert resp.status_code == 404
