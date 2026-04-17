@@ -586,16 +586,30 @@ def _download_rfi_bundle_zip(conn, bundle_id: int) -> StreamingResponse:
 def build_client_rfi_zip(conn, client_id: int) -> tuple[bytes, str, int]:
     """Build a ZIP of every open (non-complete) RFI bundle for a client.
 
+    Folder layout mirrors the Outstanding Requests.xlsx workbook tabs —
+    one top-level folder per program or location, with items nested
+    inside. Each item folder carries its source RFI label in brackets
+    so the path still traces back to the bundle (matching the "RFI"
+    column in the workbook). Bundle-level attachments (files attached
+    to the bundle itself rather than an item) sit in their own RFI
+    folder at the root.
+
     Layout:
-        Outstanding Requests.xlsx            ← multi-sheet workbook (one sheet per bundle)
-        {RFI title}/                         ← one top-level folder per open bundle
-            ...bundle-level files...
-            {Project}/{Coverage}/{NNN - description}/
+        Outstanding Requests.xlsx            ← multi-sheet workbook (one tab per program/location)
+        {Program}/                           ← matches a workbook program tab
+            [{RFI Label}] {NNN - description}/
                 ...item files...
+        {Location}/                          ← matches a workbook location tab
+            [{RFI Label}] {NNN - description}/
+                ...item files...
+        Unassigned/                          ← items with neither program nor location
+            ...
+        {RFI Label}/                         ← bundle-level files (only if present)
+            ...
 
     Returns ``(zip_bytes, download_filename, total_files_written)``.
     Raises ``ValueError`` with a user-facing message if the client has no
-    open bundles or no attached files to include.
+    open bundles.
     """
     from policydb.exporter import export_client_requests_xlsx
 
@@ -609,9 +623,39 @@ def build_client_rfi_zip(conn, client_id: int) -> tuple[bytes, str, int]:
     if not bundles:
         raise ValueError("No open requests to download")
 
+    items = conn.execute(
+        """SELECT cri.id, cri.description, cri.sort_order,
+                  cri.project_name AS item_project_name,
+                  p.project_name AS policy_project_name,
+                  pgm.name AS program_name,
+                  b.id AS bundle_id, b.rfi_uid, b.title AS bundle_title
+             FROM client_request_items cri
+             JOIN client_request_bundles b ON cri.bundle_id = b.id
+             LEFT JOIN policies p ON cri.policy_uid = p.policy_uid
+             LEFT JOIN programs pgm ON p.program_id = pgm.id
+            WHERE b.client_id = ? AND b.status != 'complete'
+            ORDER BY cri.received ASC, cri.sort_order ASC, cri.id ASC""",
+        (client_id,),
+    ).fetchall()
+
     buf = io.BytesIO()
     _, alloc = _zip_name_allocator()
     total_files = 0
+
+    used_bundle_labels: set[str] = set()
+    bundle_label_by_id: dict[int, str] = {}
+    for b in bundles:
+        label_parts = [p for p in (b["rfi_uid"], b["title"]) if p]
+        raw_label = " - ".join(label_parts) if label_parts else f"Request {b['id']}"
+        base_label = _friendly_folder_name(raw_label, max_len=70)
+        label = base_label
+        n = 2
+        while label in used_bundle_labels:
+            label = f"{base_label} ({n})"
+            n += 1
+        used_bundle_labels.add(label)
+        bundle_label_by_id[b["id"]] = label
+
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         # Workbook at the root is the manifest
         try:
@@ -620,21 +664,54 @@ def build_client_rfi_zip(conn, client_id: int) -> tuple[bytes, str, int]:
         except Exception as exc:
             logger.warning("Zip: failed to embed client xlsx for %s: %s", client_id, exc)
 
-        # One top folder per bundle, deduped so identically-titled bundles
-        # still get unique folders.
-        used_folders: set[str] = set()
+        # Item-level files grouped by program/location to mirror workbook tabs
+        for item in items:
+            i = dict(item)
+            program = (i.get("program_name") or "").strip()
+            location = ((i.get("policy_project_name") or i.get("item_project_name")) or "").strip()
+            if program:
+                tab_label = program
+            elif location:
+                tab_label = location
+            else:
+                tab_label = "Unassigned"
+
+            rfi_label = bundle_label_by_id.get(i["bundle_id"]) or f"Request {i['bundle_id']}"
+            desc = _friendly_folder_name(i.get("description") or "Item", max_len=50)
+            so = i.get("sort_order") or 0
+            item_folder = (
+                f"{_friendly_folder_name(tab_label, max_len=60)}/"
+                f"[{_friendly_folder_name(rfi_label, max_len=30)}] {so:03d} - {desc}/"
+            )
+
+            att_rows = conn.execute(
+                """SELECT a.*, ra.sort_order AS link_sort
+                     FROM attachments a
+                     JOIN record_attachments ra ON ra.attachment_id = a.id
+                    WHERE ra.record_type = 'rfi_item' AND ra.record_id = ?
+                    ORDER BY ra.sort_order, a.created_at""",
+                (i["id"],),
+            ).fetchall()
+            for r in att_rows:
+                _add_attachment_to_zip(zf, item_folder, dict(r), alloc)
+            total_files += len(att_rows)
+
+        # Bundle-level files go into a per-RFI folder at the zip root
         for b in bundles:
-            label_parts = [p for p in (b["rfi_uid"], b["title"]) if p]
-            raw_label = " - ".join(label_parts) if label_parts else f"Request {b['id']}"
-            base_label = _friendly_folder_name(raw_label, max_len=70)
-            label = base_label
-            n = 2
-            while label in used_folders:
-                label = f"{base_label} ({n})"
-                n += 1
-            used_folders.add(label)
-            top_folder = f"{label}/"
-            total_files += _add_rfi_bundle_to_zip(conn, zf, b["id"], top_folder, alloc)
+            direct_rows = conn.execute(
+                """SELECT a.*, ra.sort_order AS link_sort
+                     FROM attachments a
+                     JOIN record_attachments ra ON ra.attachment_id = a.id
+                    WHERE ra.record_type = 'rfi_bundle' AND ra.record_id = ?
+                    ORDER BY ra.sort_order, a.created_at""",
+                (b["id"],),
+            ).fetchall()
+            if not direct_rows:
+                continue
+            bundle_folder = f"{bundle_label_by_id[b['id']]}/"
+            for r in direct_rows:
+                _add_attachment_to_zip(zf, bundle_folder, dict(r), alloc)
+            total_files += len(direct_rows)
 
     buf.seek(0)
     data = buf.getvalue()

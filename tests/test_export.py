@@ -243,6 +243,111 @@ def test_client_requests_xlsx_empty(seeded_db):
     assert content[:2] == b"PK"
 
 
+def test_client_requests_xlsx_groups_by_program_and_location(seeded_db):
+    """Tabs are grouped by program (if the policy has one) or location,
+    not by RFI bundle. Each row carries an 'RFI' column for traceability."""
+    from openpyxl import load_workbook
+    db_path, client_id, conn = seeded_db
+
+    # Program: Corporate Property, linked to POL-001
+    conn.execute(
+        """INSERT INTO programs (program_uid, client_id, name, line_of_business)
+           VALUES ('PRG-001', ?, 'Corporate Property', 'Property')""",
+        (client_id,),
+    )
+    program_id = conn.execute("SELECT id FROM programs WHERE program_uid='PRG-001'").fetchone()["id"]
+    conn.execute("UPDATE policies SET program_id=? WHERE policy_uid='POL-001'", (program_id,))
+    # Location-only item: POL-002 stays unlinked to a program but gets a project_name
+    conn.execute("UPDATE policies SET project_name='Downtown Office' WHERE policy_uid='POL-002'")
+
+    # Two open bundles with one item each
+    conn.execute(
+        "INSERT INTO client_request_bundles (id, client_id, rfi_uid, title, status) "
+        "VALUES (10, ?, 'RFI-010', 'Q1 Renewal', 'open')",
+        (client_id,),
+    )
+    conn.execute(
+        "INSERT INTO client_request_bundles (id, client_id, rfi_uid, title, status) "
+        "VALUES (11, ?, 'RFI-011', 'Mid-term', 'open')",
+        (client_id,),
+    )
+    conn.execute(
+        """INSERT INTO client_request_items (bundle_id, description, policy_uid, category, received, sort_order)
+           VALUES (10, 'Statement of Values', 'POL-001', 'Property', 0, 1)"""
+    )
+    conn.execute(
+        """INSERT INTO client_request_items (bundle_id, description, policy_uid, category, received, sort_order)
+           VALUES (11, 'Signed application', 'POL-002', 'Applications', 0, 1)"""
+    )
+    # Unassigned: no policy, no project_name
+    conn.execute(
+        """INSERT INTO client_request_items (bundle_id, description, category, received, sort_order)
+           VALUES (10, 'Org chart', 'Corporate Docs', 0, 2)"""
+    )
+    conn.commit()
+
+    wb = load_workbook(io.BytesIO(export_client_requests_xlsx(conn, client_id)))
+    names = wb.sheetnames
+    assert "Corporate Property" in names
+    assert "Downtown Office" in names
+    assert "Unassigned" in names
+    # Program tab comes before location tab; Unassigned is last
+    assert names.index("Corporate Property") < names.index("Downtown Office")
+    assert names[-1] == "Unassigned"
+
+    # Program sheet has the RFI column populated with the bundle uid
+    ws = wb["Corporate Property"]
+    headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+    assert "RFI" in headers
+    assert "Attached File(s)" in headers
+    rfi_col = headers.index("RFI") + 1
+    assert ws.cell(row=2, column=rfi_col).value == "RFI-010"
+
+
+def test_client_requests_xlsx_merges_multiple_bundles_into_one_tab(seeded_db):
+    """Items from two separate bundles that share a program land in the same tab."""
+    from openpyxl import load_workbook
+    db_path, client_id, conn = seeded_db
+
+    conn.execute(
+        """INSERT INTO programs (program_uid, client_id, name) VALUES ('PRG-002', ?, 'Casualty Program')""",
+        (client_id,),
+    )
+    prg_id = conn.execute("SELECT id FROM programs WHERE program_uid='PRG-002'").fetchone()["id"]
+    conn.execute("UPDATE policies SET program_id=? WHERE policy_uid='POL-001'", (prg_id,))
+    conn.execute("UPDATE policies SET program_id=? WHERE policy_uid='POL-002'", (prg_id,))
+
+    conn.execute(
+        "INSERT INTO client_request_bundles (id, client_id, rfi_uid, title, status) "
+        "VALUES (20, ?, 'RFI-020', 'Bundle A', 'open')",
+        (client_id,),
+    )
+    conn.execute(
+        "INSERT INTO client_request_bundles (id, client_id, rfi_uid, title, status) "
+        "VALUES (21, ?, 'RFI-021', 'Bundle B', 'open')",
+        (client_id,),
+    )
+    conn.execute(
+        "INSERT INTO client_request_items (bundle_id, description, policy_uid, received, sort_order) "
+        "VALUES (20, 'Loss runs', 'POL-001', 0, 1)"
+    )
+    conn.execute(
+        "INSERT INTO client_request_items (bundle_id, description, policy_uid, received, sort_order) "
+        "VALUES (21, 'Exposure schedule', 'POL-002', 0, 1)"
+    )
+    conn.commit()
+
+    wb = load_workbook(io.BytesIO(export_client_requests_xlsx(conn, client_id)))
+    assert wb.sheetnames == ["Casualty Program"]
+    ws = wb["Casualty Program"]
+    # Header row + two data rows
+    assert ws.max_row == 3
+    headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+    rfi_col = headers.index("RFI") + 1
+    rfi_values = {ws.cell(row=r, column=rfi_col).value for r in range(2, ws.max_row + 1)}
+    assert rfi_values == {"RFI-020", "RFI-021"}
+
+
 def test_build_client_rfi_zip_layout(seeded_rfi_db, tmp_path, monkeypatch):
     """build_client_rfi_zip produces a client-friendly ZIP with the
     workbook at root, per-bundle top folders, and no MANIFEST.txt."""
@@ -291,13 +396,15 @@ def test_build_client_rfi_zip_layout(seeded_rfi_db, tmp_path, monkeypatch):
     assert "MANIFEST.txt" not in names
     # Client-friendly workbook at root
     assert "Outstanding Requests.xlsx" in names
-    # Exactly one PDF inside a per-bundle top folder with friendly names
+    # Exactly one PDF, nested under a program/location tab folder that
+    # mirrors the workbook. The seeded policy has no program and no
+    # project_name, so the item lands in "Unassigned/".
     pdfs = [n for n in names if n.endswith(".pdf")]
     assert len(pdfs) == 1
-    # Path has spaces (not underscores) and uses the bundle title
-    assert "Q1 Renewal Info/" in pdfs[0]
-    # Coverage line inherited from linked policy (General Liability)
-    assert "General Liability/" in pdfs[0]
+    assert pdfs[0].startswith("Unassigned/")
+    # Item folder carries the RFI label in brackets so the bundle is
+    # still traceable from the file path (matches the workbook's RFI column).
+    assert "[Q1 Renewal Info]" in pdfs[0]
 
 
 def test_build_client_rfi_zip_raises_when_no_bundles(seeded_db):
