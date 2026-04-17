@@ -1,7 +1,7 @@
 """Tests for the timesheet module and schema."""
 
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -75,3 +75,29 @@ def test_timesheet_thresholds_default():
     assert thresholds.get("low_day_threshold_hours") == 4.0
     assert thresholds.get("silence_renewal_window_days") == 30
     assert thresholds.get("range_cap_days") == 92
+
+
+def test_build_payload_shape_for_standard_week(tmp_db):
+    conn = get_connection(tmp_db)
+    from policydb.timesheet import build_timesheet_payload
+
+    start = date(2026, 4, 13)   # Monday
+    end = date(2026, 4, 19)     # Sunday
+    payload = build_timesheet_payload(conn, start=start, end=end)
+
+    assert payload["range"]["start"] == "2026-04-13"
+    assert payload["range"]["end"] == "2026-04-19"
+    assert payload["range"]["kind"] in ("week", "day", "range")
+    assert payload["totals"]["total_hours"] == 0.0
+    assert payload["totals"]["activity_count"] == 0
+    assert payload["totals"]["flag_count"] == 0
+    assert "flags" in payload
+    assert set(payload["flags"].keys()) == {
+        "low_days", "silent_clients", "unreviewed_emails", "null_hour_activities"
+    }
+    assert isinstance(payload["days"], list)
+    assert len(payload["days"]) == 7  # Mon..Sun
+    assert payload["days"][0]["date"] == "2026-04-13"
+    assert payload["days"][6]["date"] == "2026-04-19"
+    assert payload["closeout"] == {"closed_at": None, "snapshot": None}
+    conn.close()
