@@ -3,25 +3,31 @@
     <h2 class="font-semibold text-gray-900 text-sm">Internal Team
       <span class="normal-case font-normal text-gray-400 text-xs">&mdash; account team members</span>
     </h2>
-    <button type="button" class="text-xs text-marsh hover:underline font-medium no-print"
-      onclick="if(window._teamContactsMatrix)window._teamContactsMatrix.createNewRow()">+ Add</button>
+    <div class="flex items-center gap-3 no-print">
+      <button type="button"
+        onclick="copyPolicyTable('/clients/{{ client.id }}/team/copy-table', this)"
+        class="text-xs text-gray-400 hover:text-marsh"
+        title="Copy internal team table to clipboard">Copy Table</button>
+      <button type="button" class="text-xs text-marsh hover:underline font-medium"
+        onclick="if(window._teamContactsMatrix)window._teamContactsMatrix.createNewRow()">+ Add</button>
+    </div>
   </div>
 
   <div class="overflow-x-auto">
-    <table class="w-full text-sm table-fixed">
+    <table class="w-full text-sm table-fixed" data-sortable>
       <colgroup>
         <col style="width:14%"><col style="width:11%"><col style="width:11%"><col style="width:13%">
         <col style="width:17%"><col style="width:13%"><col style="width:13%"><col style="width:28px">
       </colgroup>
       <thead>
         <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
-          <th class="px-3 py-2">Name</th>
-          <th class="px-3 py-2">Title</th>
-          <th class="px-3 py-2">Role</th>
-          <th class="px-3 py-2">Assignment</th>
-          <th class="px-3 py-2">Email</th>
-          <th class="px-3 py-2">Phone</th>
-          <th class="px-3 py-2">Mobile</th>
+          <th class="px-3 py-2" data-sort-key="name">Name</th>
+          <th class="px-3 py-2" data-sort-key="title">Title</th>
+          <th class="px-3 py-2" data-sort-key="role">Role</th>
+          <th class="px-3 py-2" data-sort-key="assignment">Assignment</th>
+          <th class="px-3 py-2" data-sort-key="email">Email</th>
+          <th class="px-3 py-2" data-sort-key="phone">Phone</th>
+          <th class="px-3 py-2" data-sort-key="mobile">Mobile</th>
           <th class="px-3 py-2"></th>
         </tr>
       </thead>

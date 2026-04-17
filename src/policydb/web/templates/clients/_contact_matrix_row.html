@@ -16,6 +16,7 @@
   {# Role (combobox) #}
   <td class="matrix-cell-combo px-3 py-2.5 cursor-pointer relative"
       data-field="role"
+      data-sort-value="{{ c.role or '' }}"
       data-options='{{ contact_roles | tojson }}'>
     <span class="cell-display">
       {% if c.role %}
@@ -46,7 +47,9 @@
          data-placeholder="Cell...">{{ c.mobile or '' }}</div>
   </td>
   {# Last Touch — read-only; tap to jump to the activity history tab #}
-  <td class="px-3 py-2.5 whitespace-nowrap text-xs text-gray-500" title="{{ c.last_touch or '' }}">
+  <td class="px-3 py-2.5 whitespace-nowrap text-xs text-gray-500"
+      data-sort-value="{{ c.last_touch or '' }}"
+      title="{{ c.last_touch or '' }}">
     {% if c.last_touch_ago %}
       {{ c.last_touch_ago }}
     {% else %}

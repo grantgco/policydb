@@ -16,6 +16,7 @@
   {# Role (combobox) #}
   <td class="matrix-cell-combo px-3 py-2.5 cursor-pointer relative"
       data-field="role"
+      data-sort-value="{{ c.role or '' }}"
       data-options='{{ contact_roles | tojson }}'>
     <span class="cell-display">
       {% if c.role %}
@@ -26,6 +27,7 @@
   {# Assignment (combobox, amber, client-specific) #}
   <td class="matrix-cell-combo px-3 py-2.5 cursor-pointer relative"
       data-field="assignment"
+      data-sort-value="{{ c.assignment or '' }}"
       data-options='{{ team_assignments | tojson }}'>
     <span class="cell-display">
       {% if c.assignment %}

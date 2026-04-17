@@ -6,12 +6,18 @@
   {% endif %}
   <div class="flex items-center justify-between mb-3">
     <h2 class="font-semibold text-gray-900 text-sm">Contacts</h2>
-    <button type="button" class="text-xs text-marsh hover:underline font-medium no-print"
-      onclick="if(window._clientContactsMatrix)window._clientContactsMatrix.createNewRow()">+ Add</button>
+    <div class="flex items-center gap-3 no-print">
+      <button type="button"
+        onclick="copyPolicyTable('/clients/{{ client.id }}/contacts/copy-table', this)"
+        class="text-xs text-gray-400 hover:text-marsh"
+        title="Copy contacts table to clipboard">Copy Table</button>
+      <button type="button" class="text-xs text-marsh hover:underline font-medium"
+        onclick="if(window._clientContactsMatrix)window._clientContactsMatrix.createNewRow()">+ Add</button>
+    </div>
   </div>
 
   <div class="overflow-x-auto">
-    <table class="w-full text-sm table-fixed">
+    <table class="w-full text-sm table-fixed" data-sortable>
       <colgroup>
         <col style="width:14%"><col style="width:10%"><col style="width:10%">
         <col style="width:17%"><col style="width:12%"><col style="width:12%"><col style="width:9%"><col style="width:18%">
@@ -19,14 +25,14 @@
       </colgroup>
       <thead>
         <tr class="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100 bg-gray-50">
-          <th class="px-3 py-2">Name</th>
-          <th class="px-3 py-2">Title</th>
-          <th class="px-3 py-2">Role</th>
-          <th class="px-3 py-2">Email</th>
-          <th class="px-3 py-2">Phone</th>
-          <th class="px-3 py-2">Mobile</th>
-          <th class="px-3 py-2" title="Last logged activity with this contact">Last Touch</th>
-          <th class="px-3 py-2">Notes</th>
+          <th class="px-3 py-2" data-sort-key="name">Name</th>
+          <th class="px-3 py-2" data-sort-key="title">Title</th>
+          <th class="px-3 py-2" data-sort-key="role">Role</th>
+          <th class="px-3 py-2" data-sort-key="email">Email</th>
+          <th class="px-3 py-2" data-sort-key="phone">Phone</th>
+          <th class="px-3 py-2" data-sort-key="mobile">Mobile</th>
+          <th class="px-3 py-2" data-sort-key="last_touch" data-sort-type="date" title="Last logged activity with this contact">Last Touch</th>
+          <th class="px-3 py-2" data-sort-key="notes">Notes</th>
           <th class="px-3 py-2"></th>
           <th class="px-3 py-2"></th>
         </tr>
