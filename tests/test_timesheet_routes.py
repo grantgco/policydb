@@ -39,10 +39,10 @@ def _make_activity(client, *, subject="Test", hours=0.1, source="manual"):
     """Insert an activity via raw SQL (fast path) and return its id."""
     from policydb.db import get_connection
     conn = get_connection()
-    cur = conn.execute(
-        "INSERT INTO clients (name, industry_segment, account_exec) VALUES ('Cust', 'Tech', 'Grant')"
+    conn.execute(
+        "INSERT OR IGNORE INTO clients (name, industry_segment, account_exec) VALUES ('Cust', 'Tech', 'Grant')"
     )
-    cid = cur.lastrowid
+    cid = conn.execute("SELECT id FROM clients WHERE name='Cust'").fetchone()["id"]
     cur = conn.execute(
         """INSERT INTO activity_log
            (activity_date, client_id, subject, activity_type,
@@ -214,3 +214,57 @@ def test_delete_activity_removes_row(client):
 def test_delete_activity_404_on_missing(client):
     resp = client.delete("/timesheet/activity/999999")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Task 14: POST /closeout + POST /closeout/{id}/reopen
+# ---------------------------------------------------------------------------
+
+def test_post_closeout_creates_row_and_bulk_stamps(client):
+    aid1 = _make_activity(client)
+    aid2 = _make_activity(client)
+    week_start = "2026-04-13"
+
+    resp = client.post("/timesheet/closeout", data={"week_start": week_start})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+
+    from policydb.db import get_connection
+    conn = get_connection()
+    co = conn.execute(
+        "SELECT * FROM timesheet_closeouts WHERE week_start=?", (week_start,)
+    ).fetchone()
+    assert co is not None
+
+    stamped = conn.execute(
+        "SELECT COUNT(*) AS n FROM activity_log WHERE reviewed_at IS NOT NULL"
+    ).fetchone()["n"]
+    assert stamped >= 2
+    conn.close()
+
+
+def test_post_closeout_rejects_duplicate_week(client):
+    week_start = "2026-04-13"
+    client.post("/timesheet/closeout", data={"week_start": week_start})
+    resp = client.post("/timesheet/closeout", data={"week_start": week_start})
+    assert resp.status_code == 409
+
+
+def test_post_reopen_deletes_closeout(client):
+    week_start = "2026-04-13"
+    first = client.post("/timesheet/closeout", data={"week_start": week_start})
+    co_id = first.json()["id"]
+    resp = client.post(f"/timesheet/closeout/{co_id}/reopen")
+    assert resp.status_code == 200
+
+    from policydb.db import get_connection
+    conn = get_connection()
+    row = conn.execute("SELECT 1 FROM timesheet_closeouts WHERE id=?", (co_id,)).fetchone()
+    assert row is None
+    conn.close()
+
+
+def test_post_closeout_rejects_non_monday(client):
+    resp = client.post("/timesheet/closeout", data={"week_start": "2026-04-15"})
+    assert resp.status_code == 400

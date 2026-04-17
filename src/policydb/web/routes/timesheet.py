@@ -1,6 +1,7 @@
 """Phase 4 — Timesheet Review routes."""
 from __future__ import annotations
 
+import sqlite3 as _sqlite3
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -62,6 +63,62 @@ def get_panel(
         "timesheet/_panel.html",
         {"request": request, "payload": payload},
     )
+
+
+@router.post("/closeout")
+def post_closeout(
+    week_start: str = Form(...),
+    conn=Depends(get_db),
+):
+    try:
+        ws = date.fromisoformat(week_start)
+    except ValueError:
+        raise HTTPException(400, "Invalid week_start")
+    if ws.weekday() != 0:
+        raise HTTPException(400, "week_start must be a Monday")
+    we = ws + timedelta(days=6)
+
+    payload = build_timesheet_payload(conn, start=ws, end=we)
+
+    try:
+        cur = conn.execute(
+            """INSERT INTO timesheet_closeouts
+               (week_start, week_end, total_hours, activity_count, flag_count)
+               VALUES (?, ?, ?, ?, ?)""",
+            (ws.isoformat(), we.isoformat(),
+             payload["totals"]["total_hours"],
+             payload["totals"]["activity_count"],
+             payload["totals"]["flag_count"]),
+        )
+    except _sqlite3.IntegrityError:
+        raise HTTPException(409, "Week already closed")
+
+    conn.execute(
+        """UPDATE activity_log
+           SET reviewed_at = datetime('now')
+           WHERE reviewed_at IS NULL
+             AND activity_date BETWEEN ? AND ?""",
+        (ws.isoformat(), we.isoformat()),
+    )
+    conn.commit()
+
+    return JSONResponse({
+        "ok": True,
+        "id": cur.lastrowid,
+        "week_start": ws.isoformat(),
+    })
+
+
+@router.post("/closeout/{closeout_id}/reopen")
+def post_reopen(closeout_id: int, conn=Depends(get_db)):
+    row = conn.execute(
+        "SELECT id FROM timesheet_closeouts WHERE id=?", (closeout_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404, "Closeout not found")
+    conn.execute("DELETE FROM timesheet_closeouts WHERE id=?", (closeout_id,))
+    conn.commit()
+    return JSONResponse({"ok": True})
 
 
 @router.post("/activity/{activity_id}/review")
