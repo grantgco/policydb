@@ -144,3 +144,52 @@ def test_patch_activity_404_on_missing(client):
     resp = client.patch("/timesheet/activity/999999",
                         data={"duration_hours": "1.0"})
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Task 12: POST /activity (create new row)
+# ---------------------------------------------------------------------------
+
+def test_post_activity_creates_row_and_stamps_reviewed(client):
+    from policydb.db import get_connection
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO clients (name, industry_segment, account_exec) VALUES ('NewClient', 'Tech', 'Grant')"
+    )
+    cid = cur.lastrowid
+    conn.commit()
+    conn.close()
+
+    resp = client.post(
+        "/timesheet/activity",
+        data={
+            "client_id": str(cid),
+            "activity_date": "2026-04-15",
+            "subject": "Forgotten phone call",
+            "activity_type": "Call",
+            "duration_hours": "0.5",
+        },
+    )
+    assert resp.status_code in (200, 201)
+    body = resp.json()
+    assert body["ok"] is True
+    new_id = body["id"]
+
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT subject, duration_hours, reviewed_at, item_kind FROM activity_log WHERE id=?",
+        (new_id,),
+    ).fetchone()
+    assert row["subject"] == "Forgotten phone call"
+    assert float(row["duration_hours"]) == 0.5
+    assert row["reviewed_at"] is not None
+    assert row["item_kind"] == "activity"
+    conn.close()
+
+
+def test_post_activity_requires_client(client):
+    resp = client.post(
+        "/timesheet/activity",
+        data={"activity_date": "2026-04-15", "subject": "nope"},
+    )
+    assert resp.status_code in (400, 422)

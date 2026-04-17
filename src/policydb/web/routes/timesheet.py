@@ -155,3 +155,38 @@ def patch_activity(
         "formatted": formatted,
         "total_hours": round(float(day_total), 2),
     })
+
+
+@router.post("/activity")
+def post_activity(
+    client_id: int = Form(...),
+    activity_date: str = Form(...),
+    subject: str = Form(""),
+    activity_type: str = Form("Note"),
+    duration_hours: str | None = Form(None),
+    details: str | None = Form(None),
+    policy_id: int | None = Form(None),
+    conn=Depends(get_db),
+):
+    try:
+        date.fromisoformat(activity_date)
+    except ValueError:
+        raise HTTPException(400, "Invalid activity_date")
+
+    ok = conn.execute("SELECT 1 FROM clients WHERE id=?", (client_id,)).fetchone()
+    if not ok:
+        raise HTTPException(400, "client_id does not exist")
+
+    rounded = _round_to_tenth(duration_hours) if duration_hours else None
+    account_exec = cfg.get("default_account_exec", "Grant")
+
+    cur = conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, policy_id, subject, activity_type,
+            duration_hours, details, account_exec, item_kind, reviewed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'activity', datetime('now'))""",
+        (activity_date, client_id, policy_id, subject.strip(),
+         activity_type.strip(), rounded, details, account_exec),
+    )
+    conn.commit()
+    return JSONResponse({"ok": True, "id": cur.lastrowid}, status_code=201)
