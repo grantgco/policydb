@@ -299,3 +299,36 @@ def test_null_hour_activities_count(tmp_db):
     assert payload["flags"]["null_hour_activities"] == 2
     assert payload["totals"]["flag_count"] >= 2
     conn.close()
+
+
+def test_closeout_snapshot_returned(tmp_db):
+    conn = get_connection(tmp_db)
+    from policydb.timesheet import build_timesheet_payload
+
+    conn.execute(
+        """INSERT INTO timesheet_closeouts
+           (week_start, week_end, total_hours, activity_count, flag_count)
+           VALUES ('2026-04-13', '2026-04-19', 32.5, 25, 3)"""
+    )
+    conn.commit()
+
+    payload = build_timesheet_payload(
+        conn, start=date(2026, 4, 13), end=date(2026, 4, 19),
+    )
+    assert payload["closeout"]["closed_at"] is not None
+    snap = payload["closeout"]["snapshot"]
+    assert snap is not None
+    assert snap["total_hours"] == 32.5
+    assert snap["activity_count"] == 25
+    assert snap["flag_count"] == 3
+    conn.close()
+
+
+def test_no_closeout_for_non_week_range(tmp_db):
+    """Closeout only lives at week granularity; a day or custom range returns None."""
+    conn = get_connection(tmp_db)
+    from policydb.timesheet import build_timesheet_payload
+
+    payload = build_timesheet_payload(conn, start=date(2026, 4, 13), end=date(2026, 4, 13))
+    assert payload["closeout"] == {"closed_at": None, "snapshot": None}
+    conn.close()

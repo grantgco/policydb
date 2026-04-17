@@ -186,6 +186,23 @@ def build_timesheet_payload(
         + (1 if null_hour_activities else 0)
     )
 
+    closeout = {"closed_at": None, "snapshot": None}
+    if _classify_range(start, end) == "week":
+        row = conn.execute(
+            """SELECT closed_at, total_hours, activity_count, flag_count
+               FROM timesheet_closeouts WHERE week_start = ?""",
+            (start.isoformat(),),
+        ).fetchone()
+        if row:
+            closeout = {
+                "closed_at": row["closed_at"],
+                "snapshot": {
+                    "total_hours": row["total_hours"],
+                    "activity_count": row["activity_count"],
+                    "flag_count": row["flag_count"],
+                },
+            }
+
     return {
         "range": {
             "start": start.isoformat(),
@@ -205,5 +222,5 @@ def build_timesheet_payload(
             "null_hour_activities": null_hour_activities,
         },
         "days": list(days_map.values()),
-        "closeout": {"closed_at": None, "snapshot": None},
+        "closeout": closeout,
     }
