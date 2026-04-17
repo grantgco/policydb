@@ -389,4 +389,77 @@ def test_panel_includes_closeout_button_on_week(client):
 
 def test_panel_hides_closeout_button_on_day(client):
     resp = client.get("/timesheet/panel?kind=day&start=2026-04-15&end=2026-04-15")
+
     assert "Close out week" not in resp.text
+
+
+# ── Task 21: Action Center tab integration ───────────────────────────────────
+
+
+def test_action_center_timesheet_tab_renders(client):
+    resp = client.get("/action-center?tab=timesheet")
+    assert resp.status_code == 200
+    assert "timesheet-panel" in resp.text
+
+
+def test_action_center_more_menu_includes_timesheet(client):
+    resp = client.get("/action-center")
+    assert resp.status_code == 200
+    assert "Timesheet" in resp.text
+
+
+# ── Task 22: Dashboard card integration ─────────────────────────────────────
+
+
+def test_dashboard_hides_timesheet_card_with_zero_flags(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "timesheet-card" not in resp.text
+
+
+def test_dashboard_shows_timesheet_card_when_unreviewed(client):
+    from policydb.db import get_connection
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO clients (name, industry_segment, account_exec) VALUES ('X', 'T', 'G')"
+    )
+    cid = cur.lastrowid
+    from datetime import date, timedelta
+    today = date.today()
+    start = today - timedelta(days=today.weekday())
+    conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, subject, activity_type,
+            duration_hours, source, item_kind, reviewed_at)
+           VALUES (?, ?, 'Email', 'Email', 0.1, 'outlook_sync', 'activity', NULL)""",
+        (start.isoformat(), cid),
+    )
+    conn.commit()
+    conn.close()
+
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "timesheet-card" in resp.text
+    assert "Review this week" in resp.text
+
+
+# ── Task 23: Settings UI — Timesheet Thresholds ──────────────────────────────
+
+
+def test_save_timesheet_thresholds(client):
+    resp = client.post(
+        "/settings/timesheet-thresholds",
+        data={
+            "low_day_threshold_hours": "3.5",
+            "silence_renewal_window_days": "45",
+            "range_cap_days": "60",
+        },
+    )
+    assert resp.status_code == 200
+
+    from policydb import config as cfg
+    cfg.reload_config()
+    thresholds = cfg.get("timesheet_thresholds", {})
+    assert float(thresholds["low_day_threshold_hours"]) == 3.5
+    assert int(thresholds["silence_renewal_window_days"]) == 45
+    assert int(thresholds["range_cap_days"]) == 60

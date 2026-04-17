@@ -976,6 +976,13 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
         tab_ctx = _activity_review_ctx(conn)
     elif initial_tab == "data-health":
         tab_ctx = _data_health_ctx(conn)
+    elif initial_tab == "timesheet":
+        from policydb.timesheet import build_timesheet_payload
+        today = date.today()
+        start = today - timedelta(days=today.weekday())
+        end = start + timedelta(days=6)
+        payload = build_timesheet_payload(conn, start=start, end=end)
+        tab_ctx = {"payload": payload, "ac_tab": "timesheet"}
     # Always compute scratchpad count for tab badge
     scratchpad_count = 0
     if "scratchpads" not in tab_ctx:
@@ -1228,6 +1235,20 @@ def ac_data_health(request: Request, conn=Depends(get_db)):
     ctx = _data_health_ctx(conn)
     ctx["request"] = request
     return templates.TemplateResponse("action_center/_data_health.html", ctx)
+
+
+@router.get("/action-center/timesheet", response_class=HTMLResponse)
+def ac_timesheet(request: Request, conn=Depends(get_db)):
+    """Timesheet tab partial — lazy loaded, current Mon–Sun week."""
+    from policydb.timesheet import build_timesheet_payload
+    today = date.today()
+    start = today - timedelta(days=today.weekday())
+    end = start + timedelta(days=6)
+    payload = build_timesheet_payload(conn, start=start, end=end)
+    return templates.TemplateResponse(
+        "timesheet/_panel.html",
+        {"request": request, "payload": payload, "ac_tab": "timesheet"},
+    )
 
 
 @router.get("/action-center/sidebar", response_class=HTMLResponse)
