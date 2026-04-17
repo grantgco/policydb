@@ -1047,3 +1047,64 @@ end replaceText
     except json.JSONDecodeError as e:
         logger.warning("Failed to parse flagged email results: %s", e)
         return {"ok": True, "emails": [], "parse_warning": str(e)}
+
+
+def trigger_search(query: str, auto_paste: bool = True) -> dict:
+    """Put ``query`` on the clipboard, activate Outlook, optionally UI-script
+    the paste + return sequence in the search field.
+
+    Returns a dict with keys:
+        status:  "searched" | "clipboard_only" | "unavailable"
+        query:   the input query (for UI use)
+        message: human-readable, used for toast copy
+    """
+    escaped = _escape_for_applescript(query)
+
+    if auto_paste:
+        script = (
+            'set the clipboard to "' + escaped + '"\n'
+            'try\n'
+            '    tell application "Microsoft Outlook" to activate\n'
+            'on error\n'
+            '    return "unavailable"\n'
+            'end try\n'
+            'try\n'
+            '    tell application "System Events"\n'
+            '        tell process "Microsoft Outlook"\n'
+            '            keystroke "f" using {command down, option down}\n'
+            '            delay 0.15\n'
+            '            keystroke "v" using {command down}\n'
+            '            delay 0.05\n'
+            '            keystroke return\n'
+            '        end tell\n'
+            '    end tell\n'
+            '    return "searched"\n'
+            'on error\n'
+            '    return "clipboard_only"\n'
+            'end try\n'
+        )
+    else:
+        # Clipboard-only: skip System Events entirely.
+        script = (
+            'set the clipboard to "' + escaped + '"\n'
+            'try\n'
+            '    tell application "Microsoft Outlook" to activate\n'
+            '    return "clipboard_only"\n'
+            'on error\n'
+            '    return "unavailable"\n'
+            'end try\n'
+        )
+
+    result = _run_applescript(script, timeout=_resolve_timeout("availability"))
+    status = (result.get("raw") or "").strip() or "unavailable"
+    if not result.get("ok", False):
+        status = "unavailable"
+    if status not in ("searched", "clipboard_only", "unavailable"):
+        status = "unavailable"
+
+    messages = {
+        "searched": "Searched Outlook.",
+        "clipboard_only": "Copied — ⌘V into Outlook search, then Return.",
+        "unavailable": "Outlook isn't running. Query copied — paste into search.",
+    }
+    return {"status": status, "query": query, "message": messages[status]}
