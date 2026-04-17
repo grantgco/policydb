@@ -16,6 +16,7 @@ def _daterange(start: date, end: date) -> list[date]:
 
 
 def _classify_range(start: date, end: date) -> str:
+    """Classify a date range as 'day' (single), 'week' (Mon-Sun), or 'range' (arbitrary)."""
     if start == end:
         return "day"
     days = (end - start).days + 1
