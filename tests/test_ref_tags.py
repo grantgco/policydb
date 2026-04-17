@@ -79,3 +79,85 @@ def test_wide_search_client_includes_all_relatives(seeded):
     # Quoted, OR-joined
     assert result.query == " OR ".join(f'"{t}"' for t in result.tokens)
     assert result.truncated is False
+
+
+def test_wide_search_policy(seeded):
+    result = build_wide_search(seeded["conn"], "policy", "POL-042", mode="wide")
+    # Self + linked issue + client CN
+    assert "POL-042" in result.tokens
+    assert "POL042" in result.tokens
+    assert "ISS-2026-007" in result.tokens
+    assert "CN122333627" in result.tokens
+    # Other policy POL-043 NOT included when searching from POL-042
+    assert "POL-043" not in result.tokens
+
+
+def test_wide_search_issue(seeded):
+    result = build_wide_search(
+        seeded["conn"], "issue", "ISS-2026-007", mode="wide"
+    )
+    assert result.tokens[0] == "ISS-2026-007"
+    assert "POL-042" in result.tokens
+    assert "POL042" in result.tokens
+    assert "CN122333627" in result.tokens
+
+
+def test_wide_search_program(seeded):
+    result = build_wide_search(seeded["conn"], "program", "PGM-3", mode="wide")
+    assert "PGM-3" in result.tokens
+    assert "PGM3" in result.tokens
+    assert "CN122333627" in result.tokens
+
+
+def test_narrow_mode_issue(seeded):
+    result = build_wide_search(
+        seeded["conn"], "issue", "ISS-2026-007", mode="narrow"
+    )
+    assert result.tokens == ["ISS-2026-007"]
+    assert result.query == '"ISS-2026-007"'
+
+
+def test_narrow_mode_policy(seeded):
+    result = build_wide_search(seeded["conn"], "policy", "POL-042", mode="narrow")
+    assert result.tokens == ["POL-042", "POL042"]
+
+
+def test_client_mode_collapses_to_cn(seeded):
+    result = build_wide_search(
+        seeded["conn"], "policy", "POL-042", mode="client"
+    )
+    assert result.tokens == ["CN122333627"]
+
+
+def test_truncation(seeded):
+    result = build_wide_search(
+        seeded["conn"], "client", seeded["client_id"], mode="wide", cap=2
+    )
+    assert result.truncated is True
+    assert result.total_available > 2
+    assert len(result.tokens) == 2
+    # Most specific first — issue tokens should survive
+    assert result.tokens[0] == "ISS-2026-007"
+
+
+def test_unknown_entity_type_raises(seeded):
+    with pytest.raises(ValueError, match="Unknown entity_type"):
+        build_wide_search(seeded["conn"], "foobar", 1)  # type: ignore[arg-type]
+
+
+def test_missing_entity_raises_keyerror(seeded):
+    with pytest.raises(KeyError):
+        build_wide_search(seeded["conn"], "policy", "POL-9999")
+
+
+def test_client_with_missing_cn_falls_back_to_cnumeric(tmp_db):
+    conn = get_connection(tmp_db)
+    conn.execute(
+        "INSERT INTO clients (name, industry_segment, account_exec) "
+        "VALUES ('NoCN', 'Technology', 'Grant')"
+    )
+    cid = conn.execute("SELECT id FROM clients WHERE name='NoCN'").fetchone()["id"]
+    conn.commit()
+    result = build_wide_search(conn, "client", cid, mode="wide")
+    assert result.tokens == [f"C{cid}"]
+    conn.close()
