@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import threading
-from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel
 
 from policydb import config as cfg
-from policydb.ref_tags import build_wide_search
 from policydb.web.app import get_db, templates as jinja_templates
 from policydb.email_templates import (
     render_tokens,
@@ -52,12 +50,6 @@ class ComposeRequest(BaseModel):
     save_destination: bool = False
     destination_name: str = ""
     destination_type: str = ""
-
-
-class OutlookSearchRequest(BaseModel):
-    entity_type: Literal["client", "policy", "issue", "project", "program"]
-    entity_id: str  # numeric id for client/project (stringified), UIDs otherwise
-    mode: Literal["wide", "narrow", "client"] = "wide"
 
 
 @router.get("/status")
@@ -242,37 +234,6 @@ def outlook_compose(req: ComposeRequest, conn=Depends(get_db)):
         conn.commit()
 
     return JSONResponse(result)
-
-
-@router.post("/search")
-def outlook_search(
-    req: OutlookSearchRequest,
-    conn=Depends(get_db),
-):
-    """Generate a wide Outlook search query and attempt to run it."""
-    from policydb import outlook as outlook_mod  # late import to allow monkeypatch in tests
-
-    auto_paste = bool(cfg.load_config().get("outlook_search_auto_paste", True))
-
-    try:
-        result = build_wide_search(
-            conn, req.entity_type, req.entity_id, mode=req.mode
-        )
-    except KeyError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    trigger = outlook_mod.trigger_search(result.query, auto_paste=auto_paste)
-
-    return {
-        "status": trigger["status"],
-        "query": result.query,
-        "tokens": result.tokens,
-        "total_available": result.total_available,
-        "truncated": result.truncated,
-        "message": trigger["message"],
-    }
 
 
 @router.post("/sync")

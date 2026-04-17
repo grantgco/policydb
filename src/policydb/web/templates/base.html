@@ -1555,44 +1555,6 @@ document.addEventListener('keydown', function(e) {
   }
   window.showToast = showToast;
 
-  // Search Outlook for a record + relatives. Called from _search_outlook_btn.html.
-  async function searchOutlookForRecord(btn, mode) {
-    mode = mode || 'wide';
-    var entityType = btn.dataset.entityType;
-    var entityId = btn.dataset.entityId;
-    var originalHTML = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="animate-pulse">Searching…</span>';
-    try {
-      var resp = await fetch('/outlook/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entity_type: entityType, entity_id: entityId, mode: mode }),
-      });
-      if (!resp.ok) {
-        showToast('Search failed — HTTP ' + resp.status, false);
-        return;
-      }
-      var body = await resp.json();
-      var count = body.tokens ? body.tokens.length : 0;
-      var msg = body.message || '';
-      if (body.status === 'searched') {
-        msg = 'Searched Outlook for ' + count + ' related tag' + (count === 1 ? '' : 's') + '.';
-      }
-      if (body.truncated) {
-        msg += ' Showing ' + count + ' of ' + body.total_available + '.';
-      }
-      // unavailable → red; searched or clipboard_only → green (clipboard is a success outcome)
-      showToast(msg, body.status !== 'unavailable');
-    } catch (e) {
-      showToast('Search failed — ' + e.message, false);
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = originalHTML;
-    }
-  }
-  window.searchOutlookForRecord = searchOutlookForRecord;
-
   // Note: initClientAutocomplete was moved to an early-body script near
   // line 525 so inline scripts inside child templates' content block can
   // call it at parse time. See the script block right after the body tag.

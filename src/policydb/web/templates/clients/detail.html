@@ -33,9 +33,6 @@
     {% set _cref = build_ref_tag(cn_number=client.cn_number|default(''), client_id=client.id) %}
     <button type="button" onclick="copyRefTag(this, '{{ _cref }}')"
       class="ml-2 text-xs font-mono text-gray-400 hover:text-marsh bg-gray-100 hover:bg-gray-200 px-1.5 py-0.5 rounded cursor-pointer transition-colors" title="Click to copy email ref tag">{{ _cref }}</button>
-    {% with entity_type="client", entity_id=client.id|string %}
-      {% include "_search_outlook_btn.html" %}
-    {% endwith %}
   </p>
 </div>
 
