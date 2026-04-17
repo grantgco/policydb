@@ -1,0 +1,12 @@
+{% set snap = payload.closeout.snapshot %}
+{% set delta = payload.totals.total_hours - snap.total_hours %}
+<div class="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 flex justify-between items-center">
+  <span class="text-sm text-emerald-900">
+    ✓ Closed {{ payload.closeout.closed_at[:10] }} · {{ "%.1f"|format(snap.total_hours) }}h
+    {% if delta > 0.05 %}
+      <span class="ml-2 text-amber-700 text-xs">δ +{{ "%.1f"|format(delta) }}h since close</span>
+    {% elif delta < -0.05 %}
+      <span class="ml-2 text-amber-700 text-xs">δ {{ "%.1f"|format(delta) }}h since close</span>
+    {% endif %}
+  </span>
+</div>

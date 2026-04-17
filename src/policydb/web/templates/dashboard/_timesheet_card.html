@@ -1,0 +1,16 @@
+{#
+  Context: timesheet_badge = {flags: int, unreviewed_emails: int}
+#}
+<a id="timesheet-card"
+   href="/timesheet"
+   class="block bg-white border border-amber-300 rounded-md p-4 hover:bg-amber-50 mb-3">
+  <div class="text-xs uppercase text-amber-700 font-medium">Timesheet</div>
+  <div class="text-sm mt-1">
+    <strong>Review this week</strong>
+    <span class="ml-2 text-stone-600">
+      {% if timesheet_badge.flags %}{{ timesheet_badge.flags }} flags{% endif %}
+      {% if timesheet_badge.flags and timesheet_badge.unreviewed_emails %}, {% endif %}
+      {% if timesheet_badge.unreviewed_emails %}{{ timesheet_badge.unreviewed_emails }} emails{% endif %}
+    </span>
+  </div>
+</a>

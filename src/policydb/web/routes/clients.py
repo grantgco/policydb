@@ -1388,7 +1388,9 @@ def client_tab_contacts(request: Request, client_id: int, add_contact: str = "",
     _attach_contact_last_touch(conn, team_contacts, client_id)
     _attach_contact_last_touch(conn, external_contacts, client_id)
 
-    # Placement colleagues — include archived/lost policies, tagged accordingly
+    # Placement colleagues — include archived/lost policies, tagged accordingly.
+    # Also build a per-colleague policies list so the rollup renders what each
+    # placement contact is assigned to (project, LOB, carrier, expiration).
     _pc_rows = conn.execute(
         """SELECT co.id, co.name, co.email, co.phone, co.mobile,
                   cpa.role, cpa.title, co.organization,
@@ -1402,10 +1404,46 @@ def client_tab_contacts(request: Request, client_id: int, add_contact: str = "",
            GROUP BY co.id ORDER BY LOWER(co.name)""",
         (client_id,),
     ).fetchall()
+
+    _pc_pols = conn.execute(
+        """SELECT co.id AS contact_id, p.policy_uid, p.policy_type, p.carrier,
+                  p.project_name, p.expiration_date, p.archived
+           FROM contact_policy_assignments cpa
+           JOIN contacts co ON cpa.contact_id = co.id
+           JOIN policies p ON cpa.policy_id = p.id
+           WHERE p.client_id = ? AND cpa.is_placement_colleague = 1
+           ORDER BY co.id, p.archived ASC, p.policy_type""",
+        (client_id,),
+    ).fetchall()
+    from policydb.email_templates import render_tokens as _render_tokens_pc
+    _pol_subj_tpl_pc = cfg.get("email_subject_policy", "Re: {{client_name}} \u2014 {{policy_type}}")
+    _pols_by_contact: dict[int, list[dict]] = {}
+    for pr in _pc_pols:
+        _pol_ctx = {
+            "client_name": client["name"],
+            "policy_type": pr["policy_type"] or "",
+            "carrier": pr["carrier"] or "",
+            "policy_uid": pr["policy_uid"] or "",
+            "expiration_date": pr["expiration_date"] or "",
+            "project_name": (pr["project_name"] or "").strip(),
+            "project_name_sep": f" \u2014 {pr['project_name']}" if pr["project_name"] else "",
+        }
+        _pols_by_contact.setdefault(pr["contact_id"], []).append({
+            "policy_uid": pr["policy_uid"],
+            "policy_type": pr["policy_type"],
+            "carrier": pr["carrier"],
+            "project_name": (pr["project_name"] or "").strip(),
+            "expiration_date": pr["expiration_date"] or "",
+            "mailto_subject": _render_tokens_pc(_pol_subj_tpl_pc, _pol_ctx),
+            "is_archived": bool(pr["archived"]),
+        })
+
     placement_colleagues = [
         dict(r) | {
             "organization": r["organization"] or "",
             "is_lost_only": bool(r["all_archived"]),
+            "policies": _pols_by_contact.get(r["id"], []),
+            "coverage_count": len(_pols_by_contact.get(r["id"], [])),
         }
         for r in _pc_rows
     ]
@@ -4220,6 +4258,133 @@ def copy_table(client_id: int, project: str | None = None, conn=Depends(get_db))
     from policydb.email_templates import build_policy_table
     result = build_policy_table(conn, client_id, project_name=project or None)
     return JSONResponse(result)
+
+
+@router.get("/{client_id}/contacts/copy-table")
+def copy_table_client_contacts(client_id: int, conn=Depends(get_db)):
+    """Return HTML + plain-text contacts table for clipboard copy."""
+    from policydb.email_templates import build_generic_table
+    rows = [dict(r) for r in get_client_contacts(conn, client_id, contact_type='client')]
+    _attach_contact_last_touch(conn, rows, client_id)
+    columns = [
+        ("name", "Name", False),
+        ("title", "Title", False),
+        ("role", "Role", False),
+        ("email", "Email", False),
+        ("phone", "Phone", False),
+        ("mobile", "Mobile", False),
+        ("last_touch_ago", "Last Touch", False),
+        ("notes", "Notes", False),
+    ]
+    return JSONResponse(build_generic_table(rows, columns))
+
+
+@router.get("/{client_id}/team/copy-table")
+def copy_table_team_contacts(client_id: int, conn=Depends(get_db)):
+    """Return HTML + plain-text internal team table for clipboard copy."""
+    from policydb.email_templates import build_generic_table
+    rows = [dict(r) for r in get_client_contacts(conn, client_id, contact_type='internal')]
+    columns = [
+        ("name", "Name", False),
+        ("title", "Title", False),
+        ("role", "Role", False),
+        ("assignment", "Assignment", False),
+        ("email", "Email", False),
+        ("phone", "Phone", False),
+        ("mobile", "Mobile", False),
+    ]
+    return JSONResponse(build_generic_table(rows, columns))
+
+
+@router.get("/{client_id}/external/copy-table")
+def copy_table_external_contacts(client_id: int, conn=Depends(get_db)):
+    """Return HTML + plain-text external stakeholders table for clipboard copy."""
+    from policydb.email_templates import build_generic_table
+    rows = [dict(r) for r in get_client_contacts(conn, client_id, contact_type='external')]
+    columns = [
+        ("name", "Name", False),
+        ("organization", "Organization", False),
+        ("role", "Role", False),
+        ("notes", "Notes", False),
+        ("email", "Email", False),
+        ("phone", "Phone", False),
+        ("mobile", "Mobile", False),
+    ]
+    return JSONResponse(build_generic_table(rows, columns))
+
+
+@router.get("/{client_id}/placement/copy-table")
+def copy_table_placement(client_id: int, conn=Depends(get_db)):
+    """Return HTML + plain-text placement touchpoints table for clipboard copy.
+
+    One row per placement contact with a rolled-up list of assigned coverages
+    (LOB, project, status). Archived/lost policies are included but tagged.
+    """
+    from policydb.email_templates import build_generic_table
+
+    pc_rows = conn.execute(
+        """SELECT co.id, co.name, co.email, co.phone, co.organization
+           FROM contact_policy_assignments cpa
+           JOIN contacts co ON cpa.contact_id = co.id
+           JOIN policies p ON cpa.policy_id = p.id
+           WHERE p.client_id = ? AND cpa.is_placement_colleague = 1
+           GROUP BY co.id ORDER BY LOWER(co.organization), LOWER(co.name)""",
+        (client_id,),
+    ).fetchall()
+
+    pol_rows = conn.execute(
+        """SELECT co.id AS contact_id, p.policy_type, p.carrier,
+                  p.project_name, p.archived
+           FROM contact_policy_assignments cpa
+           JOIN contacts co ON cpa.contact_id = co.id
+           JOIN policies p ON cpa.policy_id = p.id
+           WHERE p.client_id = ? AND cpa.is_placement_colleague = 1
+           ORDER BY co.id, p.archived ASC, p.policy_type""",
+        (client_id,),
+    ).fetchall()
+
+    pols_by_contact: dict[int, list[dict]] = {}
+    for r in pol_rows:
+        pols_by_contact.setdefault(r["contact_id"], []).append(dict(r))
+
+    rows = []
+    for r in pc_rows:
+        pols = pols_by_contact.get(r["id"], [])
+        active = [p for p in pols if not p["archived"]]
+        lost = [p for p in pols if p["archived"]]
+        coverage_parts = []
+        for p in active:
+            label = p["policy_type"] or "Unknown"
+            if p["project_name"]:
+                label += f" — {p['project_name']}"
+            if p["carrier"]:
+                label += f" ({p['carrier']})"
+            coverage_parts.append(label)
+        for p in lost:
+            label = (p["policy_type"] or "Unknown") + " [Lost]"
+            if p["project_name"]:
+                label += f" — {p['project_name']}"
+            coverage_parts.append(label)
+        rows.append({
+            "name": r["name"] or "",
+            "organization": r["organization"] or "",
+            "email": r["email"] or "",
+            "phone": r["phone"] or "",
+            "coverages": "; ".join(coverage_parts),
+            "active_count": len(active),
+            "total_count": len(pols),
+        })
+
+    columns = [
+        ("name", "Name", False),
+        ("organization", "Organization", False),
+        ("email", "Email", False),
+        ("phone", "Phone", False),
+        ("coverages", "Coverages Assigned", False),
+        ("active_count", "Active", False),
+        ("total_count", "Total", False),
+    ]
+    return JSONResponse(build_generic_table(rows, columns))
 
 
 @router.get("/{client_id}/copy-table/opportunities")

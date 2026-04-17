@@ -231,6 +231,12 @@ _DEFAULTS: dict[str, Any] = {
         "review_activity_window_days": 30,
         "overdue_review_days": 90,
     },
+    # ── Timesheet Review ───────────────────────────────────────────────
+    "timesheet_thresholds": {
+        "low_day_threshold_hours": 4.0,
+        "silence_renewal_window_days": 30,
+        "range_cap_days": 92,
+    },
     "carriers": [
         "AIG",
         "Berkley One",

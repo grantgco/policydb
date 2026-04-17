@@ -30,8 +30,9 @@
     var marginH = 65; // left 55 + right 10
     var availW = (container.clientWidth || 896) - marginH;
     var _totalCols = 0;
+    var TWR_GAP = 24;
     data.forEach(function(t) { _totalCols += Math.max((t.underlying || []).length, 1); });
-    var _gaps = Math.max(0, data.length - 1) * 24;
+    var _gaps = Math.max(0, data.length - 1) * TWR_GAP;
     var requiredInnerW = _totalCols * MIN_COL_W + _gaps;
     var fullW = container.clientWidth || 896;
     if (requiredInnerW > availW) {
