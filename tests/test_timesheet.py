@@ -179,3 +179,82 @@ def test_low_day_flag_ignores_future(tmp_db):
     by_date = {d["date"]: d for d in payload["days"]}
     assert by_date[future]["is_low"] is False
     conn.close()
+
+
+def _seed_policy(conn, *, client_id, expiration_date, is_opportunity=0):
+    from policydb.db import next_policy_uid
+    uid = next_policy_uid(conn)
+    cur = conn.execute(
+        """INSERT INTO policies (policy_uid, client_id, first_named_insured, policy_type,
+                                 expiration_date, is_opportunity, renewal_status)
+           VALUES (?, ?, 'Test Ins', 'General Liability', ?, ?, 'In Progress')""",
+        (uid, client_id, expiration_date, is_opportunity),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def _seed_followup(conn, *, client_id, follow_up_date):
+    cur = conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, subject, activity_type,
+            follow_up_date, follow_up_done, item_kind)
+           VALUES (date('now'), ?, 'needs follow-up', 'Task', ?, 0, 'followup')""",
+        (client_id, follow_up_date),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def test_silent_clients_flag_with_imminent_renewal(tmp_db):
+    conn = get_connection(tmp_db)
+    from policydb.timesheet import build_timesheet_payload
+
+    cid_silent = _seed_client(conn, "Silent Corp")
+    exp = (date.today() + timedelta(days=10)).isoformat()
+    _seed_policy(conn, client_id=cid_silent, expiration_date=exp)
+
+    cid_active = _seed_client(conn, "Active Corp")
+    _seed_policy(conn, client_id=cid_active, expiration_date=exp)
+    _seed_activity(conn, client_id=cid_active,
+                   activity_date=date.today().isoformat(),
+                   duration_hours=1.0)
+
+    payload = build_timesheet_payload(
+        conn,
+        start=date.today() - timedelta(days=date.today().weekday()),
+        end=date.today() - timedelta(days=date.today().weekday()) + timedelta(days=6),
+    )
+    names = {c["name"] for c in payload["flags"]["silent_clients"]}
+    assert "Silent Corp" in names
+    assert "Active Corp" not in names
+    conn.close()
+
+
+def test_silent_clients_flag_with_open_followup(tmp_db):
+    conn = get_connection(tmp_db)
+    from policydb.timesheet import build_timesheet_payload
+
+    cid = _seed_client(conn, "Followup Corp")
+    _seed_followup(conn, client_id=cid,
+                   follow_up_date=(date.today() + timedelta(days=5)).isoformat())
+
+    start = date.today() - timedelta(days=date.today().weekday())
+    payload = build_timesheet_payload(conn, start=start, end=start + timedelta(days=6))
+
+    names = {c["name"] for c in payload["flags"]["silent_clients"]}
+    assert "Followup Corp" in names
+    conn.close()
+
+
+def test_silent_clients_ignores_clients_without_work(tmp_db):
+    conn = get_connection(tmp_db)
+    from policydb.timesheet import build_timesheet_payload
+
+    cid = _seed_client(conn, "Dormant Corp")
+    start = date.today() - timedelta(days=date.today().weekday())
+    payload = build_timesheet_payload(conn, start=start, end=start + timedelta(days=6))
+
+    names = {c["name"] for c in payload["flags"]["silent_clients"]}
+    assert "Dormant Corp" not in names
+    conn.close()

@@ -43,6 +43,67 @@ def _load_activities(conn, start: date, end: date) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def _compute_silent_clients(
+    conn: sqlite3.Connection,
+    start: date,
+    end: date,
+    renewal_window_days: int,
+) -> list[dict[str, Any]]:
+    """Clients with signals of active work but zero activity in the range.
+
+    Signals: open followup (activity_log.item_kind='followup' AND follow_up_done=0),
+             policy with expiration within renewal_window_days,
+             open issue (activity_log.item_kind='issue' AND follow_up_done=0).
+    """
+    conn.row_factory = sqlite3.Row
+    today = date.today().isoformat()
+    window_end = (date.today() + timedelta(days=renewal_window_days)).isoformat()
+
+    rows = conn.execute(
+        """
+        WITH candidates AS (
+            SELECT DISTINCT client_id, 'open_followup' AS reason
+            FROM activity_log
+            WHERE item_kind = 'followup'
+              AND follow_up_done = 0
+              AND client_id IS NOT NULL
+            UNION
+            SELECT DISTINCT client_id, 'imminent_renewal' AS reason
+            FROM policies
+            WHERE expiration_date BETWEEN ? AND ?
+              AND (is_opportunity = 0 OR is_opportunity IS NULL)
+            UNION
+            SELECT DISTINCT client_id, 'open_issue' AS reason
+            FROM activity_log
+            WHERE item_kind = 'issue'
+              AND follow_up_done = 0
+              AND client_id IS NOT NULL
+        )
+        SELECT c.id AS client_id, c.name, MIN(cand.reason) AS reason
+        FROM candidates cand
+        JOIN clients c ON c.id = cand.client_id
+        LEFT JOIN activity_log a
+               ON a.client_id = cand.client_id
+              AND a.activity_date BETWEEN ? AND ?
+              AND (a.duration_hours IS NOT NULL OR a.item_kind = 'activity')
+        WHERE a.id IS NULL
+        GROUP BY c.id, c.name
+        ORDER BY c.name
+        """,
+        (today, window_end, start.isoformat(), end.isoformat()),
+    ).fetchall()
+
+    return [
+        {
+            "client_id": r["client_id"],
+            "name": r["name"],
+            "reason": r["reason"],
+            "href": f"/clients/{r['client_id']}",
+        }
+        for r in rows
+    ]
+
+
 def build_timesheet_payload(
     conn: sqlite3.Connection,
     *,
@@ -100,6 +161,9 @@ def build_timesheet_payload(
             day["is_low"] = True
             low_days.append(iso)
 
+    silence_window = int(thresholds.get("silence_renewal_window_days", 30))
+    silent_clients = _compute_silent_clients(conn, start, end, silence_window)
+
     return {
         "range": {
             "start": start.isoformat(),
@@ -110,11 +174,11 @@ def build_timesheet_payload(
         "totals": {
             "total_hours": round(total_hours, 2),
             "activity_count": len(rows),
-            "flag_count": len(low_days),
+            "flag_count": len(low_days) + len(silent_clients),
         },
         "flags": {
             "low_days": low_days,
-            "silent_clients": [],
+            "silent_clients": silent_clients,
             "unreviewed_emails": 0,
             "null_hour_activities": 0,
         },
