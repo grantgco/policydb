@@ -1,0 +1,13 @@
+{# Reusable "Search Outlook" button.
+   Caller supplies:
+     entity_type: "client" | "policy" | "issue" | "project" | "program"
+     entity_id:   string — the UID or numeric id (as string) #}
+<button type="button"
+        class="btn-secondary text-xs no-print inline-flex items-center gap-1"
+        data-entity-type="{{ entity_type }}"
+        data-entity-id="{{ entity_id }}"
+        onclick="searchOutlookForRecord(this)"
+        title="Find all correspondence about this {{ entity_type }} and its relatives (record + client + related policies/issues)">
+  <span>🔍</span>
+  <span>Search Outlook</span>
+</button>
