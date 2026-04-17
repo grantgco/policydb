@@ -67,3 +67,11 @@ def test_migration_160_closeouts_unique_week_start(tmp_db):
         )
         conn.commit()
     conn.close()
+
+
+def test_timesheet_thresholds_default():
+    from policydb import config as cfg
+    thresholds = cfg.get("timesheet_thresholds", {})
+    assert thresholds.get("low_day_threshold_hours") == 4.0
+    assert thresholds.get("silence_renewal_window_days") == 30
+    assert thresholds.get("range_cap_days") == 92
