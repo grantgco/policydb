@@ -1,46 +1,124 @@
 {% if placement_colleagues %}
-<div class="card">
-  <div class="px-5 py-3 border-b border-gray-100">
-    <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Placement Touchpoints</h3>
-  </div>
-  {% for org_name, group in placement_colleagues | groupby('organization') %}
-  {% set colleagues = group | list %}
-  {% if org_name %}
-  <div class="px-5 pt-3 pb-1">
-    <span class="text-xs font-semibold text-indigo-600 uppercase tracking-wide">{{ org_name }}</span>
-  </div>
-  {% endif %}
-  <div class="divide-y divide-gray-50 {% if not loop.last %}border-b border-gray-100{% endif %}">
-    {% for c in colleagues %}
-    <div class="px-5 py-3 {% if org_name %}pl-7{% endif %}">
-      <div class="flex items-center gap-3 mb-1.5">
-        <span class="text-sm font-medium text-gray-800">{{ c.name }}</span>
-        {% if c.email %}
-        <span class="text-xs text-gray-400">{{ c.email }}</span>
-        {% endif %}
-        <a href="/contacts?q={{ c.name | urlencode }}"
-           class="text-xs text-gray-400 hover:text-marsh ml-auto shrink-0">Edit in Contacts →</a>
+<div id="placement-card" class="card">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Placement Touchpoints
+      <span class="normal-case font-normal text-gray-400 text-[11px] ml-1">— who is handling what</span>
+    </h3>
+    <div class="flex items-center gap-3 no-print">
+      <div class="flex items-center gap-1 text-[11px] text-gray-400">
+        <span>Sort:</span>
+        <button type="button" data-pc-sort="org-name" class="px-1.5 py-0.5 rounded hover:bg-gray-100 text-gray-600 font-medium bg-gray-100">Org · Name</button>
+        <button type="button" data-pc-sort="name" class="px-1.5 py-0.5 rounded hover:bg-gray-100">Name</button>
+        <button type="button" data-pc-sort="coverage" class="px-1.5 py-0.5 rounded hover:bg-gray-100">Coverages</button>
       </div>
-      <ul class="space-y-1">
-        {% for p in c.policies %}
-        <li class="flex items-center gap-1.5 text-xs text-gray-500 {% if p.is_archived %}opacity-60{% endif %}">
-          <a href="/policies/{{ p.policy_uid }}/edit" class="font-mono text-gray-400 hover:text-marsh shrink-0">{{ p.policy_uid }}</a>
-          <span class="text-gray-700">{{ p.policy_type }}</span>
-          <span class="text-gray-400">· {{ p.carrier }}</span>
-          {% if p.project_name %}<span class="text-gray-400 italic truncate">· {{ p.project_name }}</span>{% endif %}
-          {% if p.expiration_date %}<span class="text-gray-300 tabular-nums">exp {{ p.expiration_date }}</span>{% endif %}
-          {% if p.is_archived %}<span class="text-[10px] bg-red-50 text-red-500 px-1.5 py-0.5 rounded-full font-medium">Lost</span>{% endif %}
-          {% if c.email %}
-          <a href="mailto:{{ c.email }}?subject={{ p.mailto_subject | urlencode }}"
-             title="Email {{ c.name }} about this policy"
-             class="ml-auto shrink-0 text-gray-300 hover:text-marsh transition-colors">✉</a>
+      <button type="button"
+        onclick="copyPolicyTable('/clients/{{ client.id }}/placement/copy-table', this)"
+        class="text-xs text-gray-400 hover:text-marsh"
+        title="Copy placement touchpoints table to clipboard">Copy Table</button>
+    </div>
+  </div>
+
+  <div id="placement-list" class="divide-y divide-gray-100">
+    {% for c in placement_colleagues %}
+    {% set active_count = c.policies | rejectattr('is_archived') | list | length %}
+    {% set total_count = c.policies | length %}
+    <div class="placement-row px-5 py-3"
+         data-name="{{ (c.name or '') | lower }}"
+         data-org="{{ (c.organization or '') | lower }}"
+         data-coverage-count="{{ active_count }}">
+      <div class="flex items-start gap-3">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-sm font-medium text-gray-800">{{ c.name }}</span>
+            {% if c.organization %}
+            <span class="text-[11px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded font-medium">{{ c.organization }}</span>
+            {% endif %}
+            {% if c.email %}
+            <a href="mailto:{{ c.email }}" class="text-xs text-gray-400 hover:text-marsh truncate">{{ c.email }}</a>
+            {% endif %}
+            {% if c.phone %}
+            <span class="text-xs text-gray-300">·</span>
+            <span class="text-xs text-gray-400">{{ c.phone }}</span>
+            {% endif %}
+            <span class="ml-auto text-[11px] text-gray-400">
+              {% if active_count %}{{ active_count }} active{% endif %}
+              {% if total_count > active_count %}
+                {% if active_count %} · {% endif %}{{ total_count - active_count }} lost
+              {% endif %}
+              {% if not total_count %}no assignments{% endif %}
+            </span>
+            <a href="/contacts?q={{ c.name | urlencode }}"
+               class="text-[11px] text-gray-400 hover:text-marsh shrink-0">Edit →</a>
+          </div>
+
+          {# Coverage rollup — what this person is working on / assigned to #}
+          {% if c.policies %}
+          <ul class="mt-1.5 space-y-1">
+            {% for p in c.policies %}
+            <li class="flex items-center gap-1.5 text-xs text-gray-500 {% if p.is_archived %}opacity-60{% endif %}">
+              {% if p.policy_uid %}
+              <a href="/policies/{{ p.policy_uid }}/edit" class="font-mono text-gray-400 hover:text-marsh shrink-0">{{ p.policy_uid }}</a>
+              {% endif %}
+              <span class="text-gray-700 font-medium">{{ p.policy_type or '—' }}</span>
+              {% if p.carrier %}<span class="text-gray-400">· {{ p.carrier }}</span>{% endif %}
+              {% if p.project_name %}<span class="text-gray-400 italic truncate">· {{ p.project_name }}</span>{% endif %}
+              {% if p.expiration_date %}<span class="text-gray-300 tabular-nums">exp {{ p.expiration_date }}</span>{% endif %}
+              {% if p.is_archived %}<span class="text-[10px] bg-red-50 text-red-500 px-1.5 py-0.5 rounded-full font-medium">Lost</span>{% endif %}
+              {% if c.email %}
+              <a href="mailto:{{ c.email }}?subject={{ p.mailto_subject | urlencode }}"
+                 title="Email {{ c.name }} about this policy"
+                 class="ml-auto shrink-0 text-gray-300 hover:text-marsh transition-colors">✉</a>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <div class="mt-1 text-[11px] text-gray-300 italic">No policies linked yet.</div>
           {% endif %}
-        </li>
-        {% endfor %}
-      </ul>
+        </div>
+      </div>
     </div>
     {% endfor %}
   </div>
-  {% endfor %}
 </div>
+
+<script>
+(function() {
+  var list = document.getElementById('placement-list');
+  if (!list) return;
+  var rows = Array.prototype.slice.call(list.querySelectorAll('.placement-row'));
+  var buttons = document.querySelectorAll('[data-pc-sort]');
+  function apply(mode) {
+    var sorted = rows.slice();
+    if (mode === 'name') {
+      sorted.sort(function(a, b) { return a.dataset.name.localeCompare(b.dataset.name); });
+    } else if (mode === 'coverage') {
+      sorted.sort(function(a, b) {
+        var d = parseInt(b.dataset.coverageCount, 10) - parseInt(a.dataset.coverageCount, 10);
+        if (d !== 0) return d;
+        return a.dataset.name.localeCompare(b.dataset.name);
+      });
+    } else {
+      sorted.sort(function(a, b) {
+        var o = a.dataset.org.localeCompare(b.dataset.org);
+        if (o !== 0) {
+          if (!a.dataset.org) return 1;
+          if (!b.dataset.org) return -1;
+          return o;
+        }
+        return a.dataset.name.localeCompare(b.dataset.name);
+      });
+    }
+    sorted.forEach(function(r) { list.appendChild(r); });
+    buttons.forEach(function(b) {
+      b.classList.toggle('bg-gray-100', b.dataset.pcSort === mode);
+      b.classList.toggle('text-gray-600', b.dataset.pcSort === mode);
+      b.classList.toggle('font-medium', b.dataset.pcSort === mode);
+    });
+  }
+  buttons.forEach(function(b) {
+    b.addEventListener('click', function() { apply(b.dataset.pcSort); });
+  });
+})();
+</script>
 {% endif %}

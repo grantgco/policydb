@@ -921,6 +921,105 @@ function copyPolicyTable(url, btn) {
   });
 }
 
+/* Generic client-side table sort.
+   Call initTableSort(tableEl) once. It looks for <th data-sort-key="col"> elements
+   and adds click handlers. Each <td> in a row may carry data-sort-value="…"
+   to override textContent-based sorting (useful for ISO dates, numeric cells,
+   or rich/badge content). Tri-state cycle: asc → desc → none (reset). */
+function initTableSort(table) {
+  if (!table || table.dataset.sortInit === '1') return;
+  table.dataset.sortInit = '1';
+  var ths = table.querySelectorAll('thead th[data-sort-key]');
+  var tbody = table.querySelector('tbody');
+  if (!tbody) return;
+  var originalOrder = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+
+  function indicator(dir) {
+    if (dir === 'asc') return ' <span style="color:#0B4BFF;">↑</span>';
+    if (dir === 'desc') return ' <span style="color:#0B4BFF;">↓</span>';
+    return ' <span class="sort-indicator-idle" style="color:#D1D5DB;opacity:0;transition:opacity .15s;">↕</span>';
+  }
+
+  function extract(tr, colIdx, key) {
+    var td = tr.children[colIdx];
+    if (!td) return '';
+    if (td.dataset && td.dataset.sortValue !== undefined) return td.dataset.sortValue;
+    return (td.textContent || '').trim();
+  }
+
+  function compare(a, b, numeric) {
+    if (numeric) {
+      var na = parseFloat(a); var nb = parseFloat(b);
+      if (isNaN(na) && isNaN(nb)) return 0;
+      if (isNaN(na)) return 1; if (isNaN(nb)) return -1;
+      return na - nb;
+    }
+    a = (a || '').toLowerCase(); b = (b || '').toLowerCase();
+    if (!a && b) return 1; if (a && !b) return -1;  // empty values sink
+    if (a < b) return -1; if (a > b) return 1; return 0;
+  }
+
+  ths.forEach(function(th, i) {
+    // Find th's real index in the thead row (in case of leading ths without data-sort-key)
+    var colIdx = Array.prototype.indexOf.call(th.parentElement.children, th);
+    th.style.cursor = 'pointer';
+    th.style.userSelect = 'none';
+    var labelHtml = th.innerHTML;
+    th.innerHTML = '<span class="sort-label">' + labelHtml + '</span><span class="sort-indicator">' + indicator(null) + '</span>';
+    th.addEventListener('mouseenter', function() {
+      var idle = th.querySelector('.sort-indicator-idle');
+      if (idle) idle.style.opacity = '1';
+    });
+    th.addEventListener('mouseleave', function() {
+      var idle = th.querySelector('.sort-indicator-idle');
+      if (idle) idle.style.opacity = '0';
+    });
+
+    th.addEventListener('click', function() {
+      var cur = th.dataset.sortDir || 'none';
+      // Clear indicators on all ths
+      ths.forEach(function(other) {
+        if (other === th) return;
+        other.dataset.sortDir = 'none';
+        var ind = other.querySelector('.sort-indicator');
+        if (ind) ind.innerHTML = indicator(null);
+      });
+      var next = cur === 'none' ? 'asc' : (cur === 'asc' ? 'desc' : 'none');
+      th.dataset.sortDir = next;
+      var ind = th.querySelector('.sort-indicator');
+      if (ind) ind.innerHTML = indicator(next);
+
+      if (next === 'none') {
+        // Restore original order (skip rows that have been removed)
+        originalOrder.forEach(function(row) {
+          if (row.parentElement === tbody) tbody.appendChild(row);
+        });
+        return;
+      }
+      var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+      // Keep "empty state" rows (e.g. "No contacts yet") pinned at end
+      var emptyRows = rows.filter(function(r) { return r.id && /empty/i.test(r.id); });
+      var dataRows = rows.filter(function(r) { return emptyRows.indexOf(r) === -1; });
+      var numeric = th.dataset.sortType === 'numeric';
+      dataRows.sort(function(ra, rb) {
+        var va = extract(ra, colIdx, th.dataset.sortKey);
+        var vb = extract(rb, colIdx, th.dataset.sortKey);
+        var r = compare(va, vb, numeric);
+        return next === 'asc' ? r : -r;
+      });
+      dataRows.forEach(function(r) { tbody.appendChild(r); });
+      emptyRows.forEach(function(r) { tbody.appendChild(r); });
+    });
+  });
+}
+
+/* Auto-init any table with data-sortable set. Also re-init after HTMX swaps. */
+function initAllSortableTables(root) {
+  (root || document).querySelectorAll('table[data-sortable]').forEach(initTableSort);
+}
+document.addEventListener('DOMContentLoaded', function() { initAllSortableTables(); });
+document.body.addEventListener('htmx:afterSwap', function(e) { initAllSortableTables(e.target); });
+
 /* confirmAction is defined via window.confirmAction in the IIFE above */
 </script>
 
