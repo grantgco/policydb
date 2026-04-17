@@ -10,4 +10,5 @@ build/
 .worktrees/
 .claude/worktrees/
 .claude/projects/
+.claude/*.lock
 .playwright-mcp/

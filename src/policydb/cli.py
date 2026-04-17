@@ -162,6 +162,30 @@ def db_stats():
     console.print()
 
 
+@db_group.command("backfill-email-contacts")
+def db_backfill_email_contacts():
+    """Re-resolve contact_id on historical Outlook-imported email activities."""
+    from policydb.email_sync import backfill_email_contacts
+    # Migrations create activity_contacts (160) and other new tables the
+    # backfill writes to — run them first so the CLI works even when the
+    # server hasn't been started since the last upgrade.
+    init_db()
+    conn = _get_conn()
+    stats = backfill_email_contacts(conn)
+    conn.close()
+    console.print(
+        f"\nScanned: [bold]{stats['scanned']}[/bold]  "
+        f"Linked: [green]{stats['linked']}[/green]  "
+        f"Contacts created: [cyan]{stats['created_contacts']}[/cyan]  "
+        f"Unrecoverable: [yellow]{stats['unrecoverable']}[/yellow]"
+    )
+    if stats["unrecoverable"]:
+        console.print(
+            "[dim]Unrecoverable rows have no sender/recipient data — they "
+            "pre-date migration 132. Re-sync from Outlook to fully recover.[/dim]"
+        )
+
+
 # ─── CLIENT COMMANDS ─────────────────────────────────────────────────────────
 
 @main.group("client")
