@@ -367,7 +367,7 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
 
-    _KNOWN_MIGRATIONS = set(range(1, 150))  # update upper bound when adding new migrations
+    _KNOWN_MIGRATIONS = set(range(1, 161))  # update upper bound when adding new migrations
 
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
@@ -2136,6 +2136,15 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         )
         conn.commit()
         logger.info("Migration 159: added contacts.title column")
+
+    if 160 not in applied:
+        conn.executescript((_MIGRATIONS_DIR / "160_activity_contacts.sql").read_text())
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (160, "activity_contacts junction: tag sender + all recipients per activity"),
+        )
+        conn.commit()
+        logger.info("Migration 160: created activity_contacts junction table")
 
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")
