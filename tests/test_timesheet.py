@@ -1,9 +1,7 @@
 """Tests for the timesheet module and schema."""
 
 import sqlite3
-import tempfile
-from datetime import date, timedelta
-from pathlib import Path
+from datetime import date
 
 import pytest
 
