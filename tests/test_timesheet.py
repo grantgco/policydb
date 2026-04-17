@@ -332,3 +332,26 @@ def test_no_closeout_for_non_week_range(tmp_db):
     payload = build_timesheet_payload(conn, start=date(2026, 4, 13), end=date(2026, 4, 13))
     assert payload["closeout"] == {"closed_at": None, "snapshot": None}
     conn.close()
+
+
+def test_get_timesheet_badge(tmp_db):
+    conn = get_connection(tmp_db)
+    from policydb.queries import get_timesheet_badge
+    cid = _seed_client(conn)
+
+    start = date.today() - timedelta(days=date.today().weekday())
+    _seed_activity(conn, client_id=cid,
+                   activity_date=start.isoformat(),
+                   duration_hours=0.1, source="outlook_sync")
+    _seed_activity(conn, client_id=cid,
+                   activity_date=start.isoformat(),
+                   duration_hours=0.1, source="outlook_sync")
+    cid2 = _seed_client(conn, "Silent B")
+    _seed_policy(conn, client_id=cid2,
+                 expiration_date=(date.today() + timedelta(days=5)).isoformat())
+
+    badge = get_timesheet_badge(conn)
+    assert isinstance(badge, dict)
+    assert badge["unreviewed_emails"] == 2
+    assert badge["flags"] >= 1
+    conn.close()
