@@ -1,0 +1,45 @@
+{# Dock search results — narrow layout, one primary action (copy ref tag via row click)
+   plus per-row Outlook search 🔍 and open-in-new-tab ↗.
+   dockCopy() is defined in dock.js (Task 12).
+   searchOutlookForRecord() is defined in dock.html (Task 11). #}
+{% if items %}
+<ul class="dock-results" role="listbox">
+  {% for item in items %}
+    {% set t = item.type %}
+    {% set r = item.data %}
+    {% set ref = item.ref_tag or '' %}
+    {% if ref %}
+    <li class="dock-row" role="option"
+        data-ref="{{ ref }}"
+        data-display="{% if t == 'clients' %}{{ r.name }}{% elif t == 'policies' %}{{ r.client_name }} / {{ r.policy_type }}{% elif t == 'issues' %}{{ r.subject }}{% elif t == 'programs' %}{{ r.name }}{% endif %}"
+        data-type="{{ t }}"
+        data-url="{% if t == 'clients' %}/clients/{{ r.id }}{% elif t == 'policies' %}/policies/{{ r.policy_uid }}/edit{% elif t == 'issues' %}/issues/{{ r.issue_uid }}{% elif t == 'programs' %}/clients/{{ r.client_id }}/programs/{{ r.program_uid }}{% endif %}"
+        data-entity-type="{% if t == 'clients' %}client{% elif t == 'policies' %}policy{% elif t == 'issues' %}issue{% elif t == 'programs' %}program{% endif %}"
+        data-entity-id="{% if t == 'clients' %}{{ r.id }}{% elif t == 'policies' %}{{ r.policy_uid }}{% elif t == 'issues' %}{{ r.issue_uid }}{% elif t == 'programs' %}{{ r.program_uid }}{% endif %}">
+      <div class="dock-row-main">
+        <span class="dock-type-badge">{% if t == 'clients' %}🏢{% elif t == 'policies' %}📄{% elif t == 'issues' %}⚠️{% elif t == 'programs' %}🗂️{% else %}•{% endif %}</span>
+        <span class="dock-name">
+          {% if t == 'clients' %}{{ r.name }}
+          {% elif t == 'policies' %}{{ r.client_name }} / {{ r.policy_type }}{% if r.carrier %} / {{ r.carrier }}{% endif %}
+          {% elif t == 'issues' %}{{ r.subject }}{% if r.client_name %} — {{ r.client_name }}{% endif %}
+          {% elif t == 'programs' %}{{ r.name }} · {{ r.client_name }}
+          {% endif %}
+        </span>
+        <span class="dock-tag">[PDB:{{ ref }}]</span>
+      </div>
+      <button class="dock-action" type="button" title="Search Outlook"
+              data-entity-type="{% if t == 'clients' %}client{% elif t == 'policies' %}policy{% elif t == 'issues' %}issue{% elif t == 'programs' %}program{% endif %}"
+              data-entity-id="{% if t == 'clients' %}{{ r.id }}{% elif t == 'policies' %}{{ r.policy_uid }}{% elif t == 'issues' %}{{ r.issue_uid }}{% elif t == 'programs' %}{{ r.program_uid }}{% endif %}"
+              onclick="event.stopPropagation(); searchOutlookForRecord(this);">🔍</button>
+      <a class="dock-open"
+         href="{% if t == 'clients' %}/clients/{{ r.id }}{% elif t == 'policies' %}/policies/{{ r.policy_uid }}/edit{% elif t == 'issues' %}/issues/{{ r.issue_uid }}{% elif t == 'programs' %}/clients/{{ r.client_id }}/programs/{{ r.program_uid }}{% endif %}"
+         target="_blank"
+         onclick="event.stopPropagation();"
+         title="Open in new tab">↗</a>
+    </li>
+    {% endif %}
+  {% endfor %}
+</ul>
+{% elif q %}
+<p class="dock-empty text-gray-500 text-xs text-center py-4">No matches for "{{ q }}"</p>
+{% endif %}

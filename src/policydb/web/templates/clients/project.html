@@ -32,6 +32,9 @@
            class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-2.5 py-1 rounded transition-colors no-print">Copy Table</button>
         <a href="/clients/{{ client.id }}/projects/{{ project.id }}/pdf"
            class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 px-2.5 py-1 rounded transition-colors no-print">Export PDF ↓</a>
+        {% with entity_type="project", entity_id=project.id|string %}
+          {% include "_search_outlook_btn.html" %}
+        {% endwith %}
       </div>
     </div>
 

@@ -306,7 +306,7 @@ def search(request: Request, q: str = "", conn=Depends(get_db)):
 
 
 @router.get("/search/live", response_class=HTMLResponse)
-def search_live(request: Request, q: str = "", conn=Depends(get_db)):
+def search_live(request: Request, q: str = "", mode: str = "", conn=Depends(get_db)):
     """Return compact search dropdown partial for live search-as-you-type."""
     if not q.strip() or len(q.strip()) < 2:
         return HTMLResponse("")
@@ -325,7 +325,63 @@ def search_live(request: Request, q: str = "", conn=Depends(get_db)):
                 break
         if len(items) >= 8:
             break
-    return templates.TemplateResponse("_search_dropdown.html", {
+    # For dock mode, compute a ref_tag for each item so the template doesn't
+    # need to perform per-row DB lookups or call build_ref_tag directly.
+    if mode == "dock":
+        from policydb.utils import build_ref_tag
+
+        def _client_cn(client_id):
+            if not client_id:
+                return ""
+            row = conn.execute(
+                "SELECT cn_number FROM clients WHERE id = ?", (client_id,)
+            ).fetchone()
+            return row["cn_number"] if row else ""
+
+        for item in items:
+            t = item["type"]
+            r = item["data"]
+            if t == "clients":
+                item["ref_tag"] = build_ref_tag(
+                    cn_number=r.get("cn_number", ""),
+                    client_id=r.get("id", 0),
+                )
+            elif t == "policies":
+                cn = _client_cn(r.get("client_id"))
+                item["ref_tag"] = build_ref_tag(
+                    cn_number=cn,
+                    client_id=r.get("client_id", 0),
+                    policy_uid=r.get("policy_uid", ""),
+                )
+            elif t == "issues":
+                # issues hydrate does not include client_id directly;
+                # look it up from activity_log via the record id
+                issue_id = r.get("id")
+                client_id = 0
+                if issue_id:
+                    al_row = conn.execute(
+                        "SELECT client_id FROM activity_log WHERE id = ?", (issue_id,)
+                    ).fetchone()
+                    if al_row:
+                        client_id = al_row["client_id"] or 0
+                cn = _client_cn(client_id)
+                item["ref_tag"] = build_ref_tag(
+                    cn_number=cn,
+                    client_id=client_id,
+                    issue_uid=r.get("issue_uid", ""),
+                )
+            elif t == "programs":
+                cn = _client_cn(r.get("client_id"))
+                item["ref_tag"] = build_ref_tag(
+                    cn_number=cn,
+                    client_id=r.get("client_id", 0),
+                    program_uid=r.get("program_uid", ""),
+                )
+            else:
+                item["ref_tag"] = ""
+
+    template = "_search_dropdown_dock.html" if mode == "dock" else "_search_dropdown.html"
+    return templates.TemplateResponse(template, {
         "request": request,
         "items": items,
         "q": q,

@@ -343,6 +343,7 @@ def _build_tab_context(tab: str, conn) -> dict:
         ctx["outlook_skip_category"] = cfg.get("outlook_skip_category", "Personal")
         ctx["outlook_email_shell_header"] = cfg.get("outlook_email_shell_header", True)
         ctx["outlook_contact_sync_enabled"] = cfg.get("outlook_contact_sync_enabled", True)
+        ctx["outlook_search_auto_paste"] = cfg.get("outlook_search_auto_paste", True)
         ctx["outlook_contact_category"] = cfg.get("outlook_contact_category", "PDB")
         ctx["outlook_contact_allow_deletes"] = cfg.get("outlook_contact_allow_deletes", True)
         ctx["last_outlook_sync"] = cfg.get("last_outlook_sync", "")
@@ -895,6 +896,7 @@ def update_outlook_config(
     skip_category: str = Form("Personal"),
     email_shell_header: str = Form(""),
     contact_sync_enabled: str = Form(""),
+    search_auto_paste: str = Form(""),
     contact_category: str = Form("PDB"),
     contact_allow_deletes: str = Form(""),
 ):
@@ -904,6 +906,7 @@ def update_outlook_config(
     full["outlook_skip_category"] = skip_category.strip()
     full["outlook_email_shell_header"] = email_shell_header == "1"
     full["outlook_contact_sync_enabled"] = contact_sync_enabled == "1"
+    full["outlook_search_auto_paste"] = search_auto_paste == "1"
     full["outlook_contact_category"] = (contact_category.strip() or "PDB")
     full["outlook_contact_allow_deletes"] = contact_allow_deletes == "1"
     cfg.save_config(full)
