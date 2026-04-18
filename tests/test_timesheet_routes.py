@@ -463,3 +463,160 @@ def test_save_timesheet_thresholds(client):
     assert float(thresholds["low_day_threshold_hours"]) == 3.5
     assert int(thresholds["silence_renewal_window_days"]) == 45
     assert int(thresholds["range_cap_days"]) == 60
+
+
+# ---------------------------------------------------------------------------
+# Task 9: GET /timesheet/options/all — cascade picker options
+# ---------------------------------------------------------------------------
+
+def test_options_endpoint_returns_client_scoped_lists(client):
+    from policydb.db import get_connection
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO clients (name, industry_segment, account_exec) "
+        "VALUES ('OptCust', 'Tech', 'Grant')"
+    )
+    cid = conn.execute("SELECT id FROM clients WHERE name='OptCust'").fetchone()["id"]
+    # Seed a policy + project + issue under the same client.
+    from policydb.db import next_policy_uid
+    uid = next_policy_uid(conn)
+    conn.execute(
+        """INSERT INTO policies (policy_uid, client_id, first_named_insured,
+                                 policy_type, expiration_date)
+           VALUES (?, ?, 'OptCust', 'GL', '2026-12-31')""",
+        (uid, cid),
+    )
+    conn.execute("INSERT INTO projects (client_id, name) VALUES (?, 'Plant 3')", (cid,))
+    conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, subject, activity_type,
+            item_kind, issue_uid, follow_up_done)
+           VALUES (date('now'), ?, 'Audit dispute', 'Issue',
+                   'issue', 'ISS-99', 0)""",
+        (cid,),
+    )
+    conn.commit()
+    conn.close()
+
+    resp = client.get(f"/timesheet/options/all?client_id={cid}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert any(p["label"].startswith("POL-") for p in data["policies"])
+    assert any(p["label"] == "Plant 3" for p in data["projects"])
+    assert any(i["label"].startswith("ISS-99") for i in data["issues"])
+    # Each row must carry an integer id.
+    for k in ("policies", "projects", "issues"):
+        for row in data[k]:
+            assert isinstance(row["id"], int)
+
+
+def test_options_endpoint_requires_client_id(client):
+    resp = client.get("/timesheet/options/all")
+    assert resp.status_code == 422  # FastAPI validation — missing query param
+
+
+# ---------------------------------------------------------------------------
+# Task 11: POST /activity accepts + validates project_id / issue_id
+# ---------------------------------------------------------------------------
+
+def _seed_client_with_extras(client):
+    from policydb.db import get_connection, next_policy_uid
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO clients (name, industry_segment, account_exec) "
+        "VALUES ('PCust', 'Tech', 'Grant')"
+    )
+    cid = conn.execute("SELECT id FROM clients WHERE name='PCust'").fetchone()["id"]
+    uid = next_policy_uid(conn)
+    conn.execute(
+        """INSERT INTO policies (policy_uid, client_id, first_named_insured,
+                                 policy_type, expiration_date)
+           VALUES (?, ?, 'PCust', 'GL', '2026-12-31')""",
+        (uid, cid),
+    )
+    pol_id = conn.execute("SELECT id FROM policies WHERE policy_uid=?", (uid,)).fetchone()["id"]
+    conn.execute("INSERT INTO projects (client_id, name) VALUES (?, 'Plant 3')", (cid,))
+    prj_id = conn.execute("SELECT id FROM projects WHERE client_id=?", (cid,)).fetchone()["id"]
+    iss_id = conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, subject, activity_type,
+            item_kind, issue_uid, follow_up_done)
+           VALUES (date('now'), ?, 'Issue Q1', 'Issue',
+                   'issue', 'ISS-10', 0)""",
+        (cid,),
+    ).lastrowid
+    conn.commit()
+    conn.close()
+    return cid, pol_id, prj_id, iss_id
+
+
+def test_post_activity_accepts_project_and_issue(client):
+    cid, pol_id, prj_id, iss_id = _seed_client_with_extras(client)
+    resp = client.post("/timesheet/activity", data={
+        "client_id": cid,
+        "activity_date": "2026-04-15",
+        "subject": "Follow up",
+        "activity_type": "Call",
+        "duration_hours": "0.5",
+        "policy_id": pol_id,
+        "project_id": prj_id,
+        "issue_id": iss_id,
+    })
+    assert resp.status_code == 201
+    new_id = resp.json()["id"]
+    from policydb.db import get_connection
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT client_id, policy_id, project_id, issue_id FROM activity_log WHERE id=?",
+        (new_id,),
+    ).fetchone()
+    assert row["client_id"] == cid
+    assert row["policy_id"] == pol_id
+    assert row["project_id"] == prj_id
+    assert row["issue_id"] == iss_id
+    conn.close()
+
+
+def test_post_activity_rejects_cross_client_project(client):
+    cid, _, prj_id, _ = _seed_client_with_extras(client)
+    # Another client with no projects.
+    from policydb.db import get_connection
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO clients (name, industry_segment, account_exec) "
+        "VALUES ('Other', 'X', 'Grant')"
+    )
+    other_cid = conn.execute("SELECT id FROM clients WHERE name='Other'").fetchone()["id"]
+    conn.commit()
+    conn.close()
+    resp = client.post("/timesheet/activity", data={
+        "client_id": other_cid,
+        "activity_date": "2026-04-15",
+        "subject": "X",
+        "activity_type": "Note",
+        "project_id": prj_id,  # belongs to PCust, not Other
+    })
+    assert resp.status_code == 400
+
+
+def test_post_activity_rejects_non_issue_row_as_issue(client):
+    cid, _, _, _ = _seed_client_with_extras(client)
+    # A plain activity row — not an issue.
+    from policydb.db import get_connection
+    conn = get_connection()
+    aid = conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, subject, activity_type, item_kind)
+           VALUES (date('now'), ?, 'plain', 'Note', 'activity')""",
+        (cid,),
+    ).lastrowid
+    conn.commit()
+    conn.close()
+    resp = client.post("/timesheet/activity", data={
+        "client_id": cid,
+        "activity_date": "2026-04-15",
+        "subject": "X",
+        "activity_type": "Note",
+        "issue_id": aid,
+    })
+    assert resp.status_code == 400

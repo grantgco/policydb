@@ -212,6 +212,17 @@ def _fmt_hours(value) -> str:
         return "—"
 
 
+def _fmt_hours_bare(value) -> str:
+    """Strip trailing zeros, no unit suffix. Used in contenteditable cells where the
+    column context already implies hours: 1.0 → '1', 1.5 → '1.5', 0.75 → '0.75', None/0 → ''."""
+    if value is None or value == 0:
+        return ""
+    try:
+        return f"{float(value):.2f}".rstrip("0").rstrip(".")
+    except (TypeError, ValueError):
+        return ""
+
+
 templates.env.filters["currency"] = _fmt_currency
 templates.env.filters["currency_short"] = _fmt_currency_short
 templates.env.filters["urgency_class"] = _urgency_class
@@ -221,6 +232,7 @@ templates.env.filters["dict_merge"] = _dict_merge
 templates.env.filters["path_quote"] = _path_quote
 templates.env.filters["safe_id"] = _safe_id
 templates.env.filters["format_hours"] = _fmt_hours
+templates.env.filters["format_hours_bare"] = _fmt_hours_bare
 templates.env.filters["fromjson"] = lambda s: __import__("json").loads(s) if s else []
 
 # ── Template globals ─────────────────────────────────────────────────────────

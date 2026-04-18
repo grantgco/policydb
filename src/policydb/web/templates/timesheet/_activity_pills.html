@@ -1,0 +1,41 @@
+{#
+  Context-pill strip for a timesheet activity.
+  Expects a dict `activity` with the keys populated by build_timesheet_payload:
+    client_name, client_href
+    project_name, project_href
+    policy_uid,  policy_href
+    issue_uid,   issue_href, issue_subject
+  Order: Client → Project → Policy → Issue.
+  Pills are read-only jump links; missing context renders nothing.
+#}
+<span class="ts-pills inline-flex items-center flex-wrap gap-1 mr-1">
+  {% if activity.client_href %}
+    <a href="{{ activity.client_href }}"
+       class="ts-pill ts-pill-client"
+       title="Client">{{ activity.client_name }}</a>
+  {% endif %}
+
+  {% if activity.project_href %}
+    <a href="{{ activity.project_href }}"
+       class="ts-pill ts-pill-project"
+       title="Project / Location">
+      <span class="ts-pill-k">LOC</span> {{ activity.project_name }}
+    </a>
+  {% endif %}
+
+  {% if activity.policy_href %}
+    <a href="{{ activity.policy_href }}"
+       class="ts-pill ts-pill-policy"
+       title="{{ activity.policy_type or 'Policy' }}">
+      {{ activity.policy_uid }}
+    </a>
+  {% endif %}
+
+  {% if activity.issue_href %}
+    <a href="{{ activity.issue_href }}"
+       class="ts-pill ts-pill-issue"
+       title="{{ activity.issue_subject or 'Issue' }}">
+      {{ activity.issue_uid }}
+    </a>
+  {% endif %}
+</span>

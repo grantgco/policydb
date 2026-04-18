@@ -28,15 +28,25 @@ def _classify_range(start: date, end: date) -> str:
 
 
 def _load_activities(conn, start: date, end: date) -> list[sqlite3.Row]:
-    """Fetch all activity_log rows whose activity_date is in [start, end], joined to client name."""
+    """Fetch activity rows in [start, end], joined to client/policy/project/issue labels."""
     conn.row_factory = sqlite3.Row
     return conn.execute(
         """SELECT a.id, a.activity_date, a.activity_type, a.subject,
                   a.duration_hours, a.reviewed_at, a.source, a.follow_up_done,
-                  a.item_kind, a.client_id, a.policy_id, a.details,
-                  c.name AS client_name
+                  a.item_kind, a.client_id, a.policy_id, a.project_id, a.issue_id,
+                  a.details,
+                  c.name       AS client_name,
+                  p.policy_uid AS policy_uid,
+                  p.policy_type AS policy_type,
+                  pr.name      AS project_name,
+                  iss.issue_uid AS issue_uid,
+                  iss.subject  AS issue_subject
            FROM activity_log a
-           LEFT JOIN clients c ON a.client_id = c.id
+           LEFT JOIN clients      c  ON c.id  = a.client_id
+           LEFT JOIN policies     p  ON p.id  = a.policy_id
+           LEFT JOIN projects     pr ON pr.id = a.project_id
+           LEFT JOIN activity_log iss ON iss.id = a.issue_id
+                                    AND iss.item_kind = 'issue'
            WHERE a.activity_date BETWEEN ? AND ?
            ORDER BY a.activity_date, a.id""",
         (start.isoformat(), end.isoformat()),
@@ -145,9 +155,34 @@ def build_timesheet_payload(
             "duration_hours": r["duration_hours"],
             "reviewed_at": r["reviewed_at"],
             "source": r["source"] or "manual",
+            "item_kind": r["item_kind"],
+
             "client_id": r["client_id"],
             "client_name": r["client_name"],
+            "client_href": (
+                f"/clients/{r['client_id']}" if r["client_id"] else None
+            ),
+
             "policy_id": r["policy_id"],
+            "policy_uid": r["policy_uid"],
+            "policy_type": r["policy_type"],
+            "policy_href": (
+                f"/policies/{r['policy_uid']}/edit" if r["policy_uid"] else None
+            ),
+
+            "project_id": r["project_id"],
+            "project_name": r["project_name"],
+            "project_href": (
+                f"/clients/{r['client_id']}/projects/{r['project_id']}"
+                if r["project_id"] and r["client_id"] else None
+            ),
+
+            "issue_id": r["issue_id"],
+            "issue_uid": r["issue_uid"],
+            "issue_subject": r["issue_subject"],
+            "issue_href": (
+                f"/issues/{r['issue_uid']}" if r["issue_uid"] else None
+            ),
         })
         total_hours += hrs
 

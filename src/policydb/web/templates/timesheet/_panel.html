@@ -1,6 +1,50 @@
 {#
   Context: payload (from build_timesheet_payload)
 #}
+<script>
+  // Load timesheet.js once — works whether this panel renders inside full_page.html
+  // (script already loaded) or inside Action Center (not loaded). The querySelector
+  // check is the actual guard; the IIFE inside timesheet.js also guards against
+  // double-binding via window._tsLoaded.
+  (function () {
+    if (document.querySelector('script[src*="/static/js/timesheet.js"]')) return;
+    var s = document.createElement('script');
+    s.src = '/static/js/timesheet.js';
+    document.head.appendChild(s);
+  })();
+</script>
+<style>
+  .ts-pill { display:inline-flex; align-items:center; gap:3px; font-size:10px;
+             padding:1px 6px; border-radius:10px; border:1px solid #e7e5e4;
+             background:#F7F3EE; color:#3D3C37; text-decoration:none;
+             white-space:nowrap; }
+  .ts-pill:hover { filter:brightness(.97); }
+  .ts-pill-k     { opacity:.55; font-weight:500; letter-spacing:.02em; }
+  .ts-pill-client  { background:#E8EDFF; border-color:#BFCCFF; color:#0B4BFF; }
+  .ts-pill-policy  { background:#E6F4EA; border-color:#BBDFC6; color:#15803d; }
+  .ts-pill-project { background:#FFF7E0; border-color:#F1E2A6; color:#92400e; }
+  .ts-pill-issue   { background:#FDECEC; border-color:#F5C2C2; color:#991b1b; }
+
+  .ts-subject, .ts-hours {
+    border-bottom: 1px solid transparent;
+    padding-bottom: 1px;
+    outline: none;
+    transition: border-color .15s, background-color .15s;
+  }
+  .ts-subject:hover, .ts-hours:hover {
+    border-bottom: 1px dashed #d6d3d1;
+    cursor: text;
+  }
+  .ts-subject:focus, .ts-hours:focus {
+    border-bottom: 1px solid #0B4BFF;
+    background: #fffefb;
+  }
+  .ts-subject:empty::before, .ts-hours:empty::before {
+    content: attr(data-placeholder);
+    color: #a8a29e;
+    font-style: italic;
+  }
+</style>
 <div id="timesheet-panel"
      data-range-kind="{{ payload.range.kind }}"
      data-range-start="{{ payload.range.start }}"
@@ -18,20 +62,20 @@
       </div>
     </div>
     <div class="flex items-center gap-2">
-      <div data-range-toggle class="inline-flex border border-stone-300 rounded overflow-hidden text-xs">
+      <div data-range-toggle class="inline-flex items-center border border-stone-300 rounded overflow-hidden text-xs">
         <button class="px-2 py-1 {% if payload.range.kind == 'day' %}bg-policydb-blue text-white{% endif %}"
                 hx-get="/timesheet/panel?kind=day"
                 hx-target="#timesheet-panel"
                 hx-swap="outerHTML"
                 hx-push-url="true">Day</button>
-        <button class="px-2 py-1 {% if payload.range.kind == 'week' %}bg-policydb-blue text-white{% endif %}"
+        <button class="px-2 py-1 border-l border-stone-300 {% if payload.range.kind == 'week' %}bg-policydb-blue text-white{% endif %}"
                 hx-get="/timesheet/panel?kind=week"
                 hx-target="#timesheet-panel"
                 hx-swap="outerHTML"
                 hx-push-url="true">Week</button>
-        <button class="px-2 py-1 {% if payload.range.kind == 'range' %}bg-policydb-blue text-white{% endif %}"
-                onclick="const s=prompt('Start (YYYY-MM-DD)?', '{{ payload.range.start }}'); const e=prompt('End (YYYY-MM-DD)?', '{{ payload.range.end }}'); if (s&&e) htmx.ajax('GET', `/timesheet/panel?kind=range&start=${s}&end=${e}`, '#timesheet-panel');">
-          Range</button>
+        <span class="border-l border-stone-300">
+          {% include "timesheet/_range_popover.html" %}
+        </span>
       </div>
       {% if payload.range.kind == 'week' and not payload.closeout.closed_at %}
         <button class="text-xs bg-policydb-blue text-white rounded px-3 py-1"
@@ -59,7 +103,7 @@
     <section class="day-card bg-white border border-stone-200 rounded-md p-3 mb-3 {% if day.is_low %}border-l-4 border-l-amber-500 bg-amber-50{% endif %}">
       <header class="flex justify-between items-center mb-2">
         <span class="text-sm font-medium">{{ day.label }}</span>
-        <span class="text-xs font-mono {% if day.is_low %}text-amber-700{% else %}text-stone-600{% endif %}">
+        <span class="day-tot text-xs font-mono {% if day.is_low %}text-amber-700{% else %}text-stone-600{% endif %}">
           {{ "%.1f"|format(day.total_hours) }}h
         </span>
       </header>
@@ -72,7 +116,7 @@
       <div class="add-slot"></div>
       <button class="add-trigger text-xs text-stone-500 mt-1 hover:text-policydb-blue"
               hx-get="/timesheet/activity/new?date={{ day.date }}"
-              hx-target="closest .day-card .add-slot"
+              hx-target="previous .add-slot"
               hx-swap="innerHTML">
         ➕ Add activity for {{ day.label }}
       </button>

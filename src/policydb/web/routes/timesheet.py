@@ -61,7 +61,11 @@ def get_panel(
     payload["range"]["kind"] = resolved_kind
     return templates.TemplateResponse(
         "timesheet/_panel.html",
-        {"request": request, "payload": payload},
+        {
+            "request": request,
+            "payload": payload,
+            "activity_types": cfg.get("activity_types", []),
+        },
     )
 
 
@@ -140,8 +144,57 @@ def get_new_activity_form(
             "request": request,
             "day": {"date": date_str},
             "client_list": [dict(r) for r in clients],
+            "activity_types": cfg.get("activity_types", []),
         },
     )
+
+
+@router.get("/options/all")
+def get_options_all(client_id: int = Query(...), conn=Depends(get_db)):
+    """Cascade options for the add-activity form. Scoped to one client."""
+    ok = conn.execute("SELECT 1 FROM clients WHERE id=?", (client_id,)).fetchone()
+    if not ok:
+        raise HTTPException(404, "Client not found")
+
+    policies = conn.execute(
+        """SELECT id, policy_uid, policy_type
+           FROM policies
+           WHERE client_id = ?
+             AND (is_opportunity = 0 OR is_opportunity IS NULL)
+           ORDER BY policy_uid
+           LIMIT 200""",
+        (client_id,),
+    ).fetchall()
+    projects = conn.execute(
+        "SELECT id, name FROM projects WHERE client_id = ? ORDER BY name LIMIT 200",
+        (client_id,),
+    ).fetchall()
+    issues = conn.execute(
+        """SELECT id, issue_uid, subject
+           FROM activity_log
+           WHERE client_id = ?
+             AND item_kind = 'issue'
+             AND follow_up_done = 0
+           ORDER BY id DESC
+           LIMIT 50""",
+        (client_id,),
+    ).fetchall()
+
+    return JSONResponse({
+        "policies": [
+            {"id": r["id"],
+             "label": f"{r['policy_uid']}" + (f" · {r['policy_type']}" if r["policy_type"] else "")}
+            for r in policies
+        ],
+        "projects": [
+            {"id": r["id"], "label": r["name"]} for r in projects
+        ],
+        "issues": [
+            {"id": r["id"],
+             "label": f"{r['issue_uid']} · {r['subject']}" if r["issue_uid"] else (r["subject"] or "")}
+            for r in issues
+        ],
+    })
 
 
 @router.post("/activity/{activity_id}/review")
@@ -191,6 +244,7 @@ def patch_activity(
 
     updates: list[str] = []
     params: list = []
+    rounded: float | None = None
 
     if duration_hours is not None:
         rounded = _round_to_tenth(duration_hours)
@@ -245,6 +299,8 @@ def post_activity(
     duration_hours: str | None = Form(None),
     details: str | None = Form(None),
     policy_id: int | None = Form(None),
+    project_id: int | None = Form(None),
+    issue_id: int | None = Form(None),
     conn=Depends(get_db),
 ):
     try:
@@ -256,16 +312,40 @@ def post_activity(
     if not ok:
         raise HTTPException(400, "client_id does not exist")
 
+    if policy_id is not None:
+        row = conn.execute(
+            "SELECT client_id FROM policies WHERE id=?", (policy_id,)
+        ).fetchone()
+        if not row or row["client_id"] != client_id:
+            raise HTTPException(400, "policy_id does not belong to client")
+
+    if project_id is not None:
+        row = conn.execute(
+            "SELECT client_id FROM projects WHERE id=?", (project_id,)
+        ).fetchone()
+        if not row or row["client_id"] != client_id:
+            raise HTTPException(400, "project_id does not belong to client")
+
+    if issue_id is not None:
+        row = conn.execute(
+            "SELECT client_id, item_kind FROM activity_log WHERE id=?", (issue_id,)
+        ).fetchone()
+        if (not row
+                or row["client_id"] != client_id
+                or row["item_kind"] != "issue"):
+            raise HTTPException(400, "issue_id is not a valid issue for client")
+
     rounded = _round_to_tenth(duration_hours) if duration_hours else None
     account_exec = cfg.get("default_account_exec", "Grant")
 
     cur = conn.execute(
         """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, subject, activity_type,
-            duration_hours, details, account_exec, item_kind, reviewed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'activity', datetime('now'))""",
-        (activity_date, client_id, policy_id, subject.strip(),
-         activity_type.strip(), rounded, details, account_exec),
+           (activity_date, client_id, policy_id, project_id, issue_id,
+            subject, activity_type, duration_hours, details, account_exec,
+            item_kind, reviewed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'activity', datetime('now'))""",
+        (activity_date, client_id, policy_id, project_id, issue_id,
+         subject.strip(), activity_type.strip(), rounded, details, account_exec),
     )
     conn.commit()
     return JSONResponse({"ok": True, "id": cur.lastrowid}, status_code=201)
