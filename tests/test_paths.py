@@ -68,12 +68,23 @@ def test_db_module_uses_paths_data_dir(tmp_path, monkeypatch):
     assert db.DB_PATH == tmp_path / "policydb.sqlite"
 
 
+def test_config_module_uses_paths_data_dir(tmp_path, monkeypatch):
+    """config.CONFIG_PATH must come from policydb.paths, not via db.py re-export."""
+    monkeypatch.setattr("policydb.paths.DATA_DIR", tmp_path)
+    from importlib import reload
+    import policydb.config as cfg
+    reload(cfg)
+    assert cfg.CONFIG_PATH == tmp_path / "config.yaml"
+
+
 @pytest.fixture(autouse=True)
 def restore_paths_module():
     """Reload policydb.paths and policydb.db back to their real state after each test."""
     yield
     import policydb.paths as paths
     import policydb.db as db
+    import policydb.config as cfg
     from importlib import reload
     reload(paths)
     reload(db)
+    reload(cfg)
