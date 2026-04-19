@@ -235,6 +235,109 @@ Pill state persists in `sessionStorage` under `today-filter-pills` (array of act
 
 ---
 
+### Visual refinements
+
+Guiding principle: **on-brand editorial density.** The existing Midnight Blue + warm parchment + DM Serif / DM Sans / JetBrains Mono pairing already differentiates this product from generic SaaS. These refinements move the Today tab from "competent wireframe" to "shipped product" without pivoting the aesthetic. All are additive to the Tier 1 layout already specified above.
+
+Where items in this section refine (rather than add to) a locked decision, the refinement is called out explicitly so it can be reverted cleanly if QA pushes back.
+
+#### Color-coding discipline — priority vs. kind
+
+- The **left priority bar** (the 4px left-edge column) owns urgency only: red = overdue, amber = today, blue = tomorrow, neutral parchment = later.
+- **Kind chips** own category only: all chips render on a neutral parchment (`--bg`) background with a colored dot or 2px left border indicating kind (Renewal, Issue, Milestone, Oppty, Task, Follow-up, Standalone).
+- This removes the current mockup's double-coding where a "Renewal" chip inherits `.chip.high` red and sits next to a red priority bar — two signals for the same fact. Chips become a stable category language; urgency belongs entirely to the bar.
+
+#### Grid ergonomics
+
+- **Ledger hairline every 5th row** in `--border` color — not full zebra stripes. Anchors the eye during a 25-row scan and fits the accounting-ledger metaphor appropriate to insurance.
+- **Row hover (120ms ease-out):** priority bar momentarily replaced by a 2px Midnight Blue inset; `•••` action button fades from `opacity: 0.35` to `1`; subject line gains a 1px accent-blue underline with 3px offset. All three animate together.
+- **Stagger fade-in on first paint:** first 8 rows fade up over 240ms with 20ms stagger, `cubic-bezier(0.2, 0.9, 0.3, 1.0)`. Initial paint only — filter toggles are instant.
+- **Overdue-only priority-bar pulse:** 2.8s ease-in-out loop between `opacity: 1.0` and `opacity: 0.55` on priority bars where `due < today`. This is the *only* ambient animation in the grid; everything else is user-triggered.
+
+#### Editorial header above the grid
+
+Replace the generic `<h2>Today</h2>` with a two-line editorial block sitting above the toolbar:
+
+- **Line 1:** today's date formatted as `Saturday · April 18` in DM Serif Display italic, ~18px, brand blue.
+- Thin horizontal rule (`border-top: 1px solid var(--border)`) spanning the frame.
+- **Line 2:** inline stats `10 open · 3 overdue · 11 suggestions` in DM Sans 12px muted, letter-spacing 0.02em.
+
+Sets a calm "you opened the paper" tone without toy-ifying the interface.
+
+#### Filter pills — ring, not fill
+
+- **Active pill:** 2px `var(--brand)` ring, transparent background, brand-blue text, small count dot (`● 3`) after the label.
+- **Inactive pill:** `--bg` parchment background, `--muted` text, 1px `--border`.
+- **All open** pill visually distinct: rendered with a thin slash divider prefix to signal "clear filters" semantics rather than just "another bucket."
+
+Matches how the codebase's existing segmented-tab controls read, and avoids the mockup's current "active = filled blue button" which visually competes with the primary `+ Add task` button.
+
+#### Empty "caught up" state
+
+When active filters produce zero rows:
+
+- 3px brand-blue left rule, ~120px tall
+- `Inbox Zero for today.` — DM Serif Display italic, ~22px, brand blue
+- `Take the afternoon off — or add a task.` — DM Sans 13px muted body
+- `+ Add task` button directly below, left-aligned
+
+Treats a cleared queue as a celebrated state, not an error state. Fits the ADD-aware design intent noted in `user_add_focus.md`.
+
+#### Complete-task micro-interaction
+
+Replace the default `<input type="checkbox">` with a custom SVG control whose transitions make completion feel earned (and the 5s undo toast feel like a safety net, not a bug):
+
+- **Unchecked:** 16px square, 1.5px `--muted` stroke, parchment fill.
+- **Hover:** stroke color snaps to `--accent` over 120ms.
+- **Checked:** stroke + fill flood to `--brand`; tick SVG path draws in via `stroke-dashoffset` over 200ms.
+- **Row then applies** `text-decoration: line-through` in muted color for 400ms before the existing 200ms fade-out defined in the Complete flow.
+
+The user literally sees their task strike out before the row vanishes.
+
+#### Ref-pill consistency in context lines
+
+When the muted context line (line 2 of the Subject column) references a policy or client UID, wrap the ID in the same `ref-pill` JetBrains Mono treatment used in the Client · Policy column. One typographic language for identifiers across the entire tab — no plaintext IDs, no underlined links masquerading as IDs.
+
+#### Nudge-age visual — refinement of the locked "faint amber background"
+
+The locked decisions specified that rows past `focus_nudge_alert_days` get a faint amber row background. **Refinement:** in a dense 25-row grid a full-row color wash competes with the priority bar and the red-overdue rows above it. Apply instead:
+
+- A 4×8px amber notch at the top-left of the priority bar (reads as a folded-corner "bookmark").
+- The "Last" column text flips to `var(--amber)`.
+
+Less color bomb, more signal. **Revert to the original full-row amber background** if QA finds the notch too subtle — call it out explicitly during implementation PR review so the tradeoff is reviewed, not silently decided.
+
+#### Suggestions rail polish
+
+- Each suggestion row gets a 3px left-edge stripe in the same priority color language as the main grid (consistency reward when the user's eye flicks between the two surfaces).
+- **Fast-capture `+` becomes a 22px circular ghost button:** 1px `--border`, parchment fill, brand-blue `+` glyph.
+- **Hover:** ring fills to `--accent`, `+` glyph inverts to white, 120ms ease.
+- Shift-click opens the Add Task modal (per locked decision). Tooltip on hover mentions the shift-modifier; visual is identical click vs. shift-click.
+
+#### Typography + button micro-details
+
+- **Subject line:** DM Sans 13px / 600 weight, `--brand` color.
+- **Context line:** DM Sans 12px / 400 weight, color slightly darker than `--muted` (roughly `#7A7468`) — improves scan legibility without losing the secondary-text hierarchy.
+- **Kind chips:** 10px / 600, uppercase, letter-spacing 0.06em. Matches existing design-system chip treatment.
+- **Add Task button** renders a keyboard hint: `+ Add task  ⌘N` where `⌘N` (or `Ctrl+N` on Windows) is 10px at 0.75 opacity inside the primary button. One detail that separates shipped software from mockup.
+- **Sort-direction affordance:** replace Unicode `▾` in column headers with a 10×6px SVG caret stroke-matched to DM Sans weight. Only the currently-sorted column shows a filled caret + a small brand-blue dot to the right of the label indicating direction.
+
+#### Accessibility + print
+
+- **Reduced motion:** wrap the overdue pulse, stagger fade-in, checkbox draw, and row-hover transitions in `@media (prefers-reduced-motion: reduce)` — each collapses to an instant state change when the user prefers reduced motion. Non-negotiable for the ADD-aware audience.
+- **Print (`@media print`):**
+  - Priority bar column collapses into a `»` glyph prefix on the subject line
+  - Chips render as bracketed text (`[Renewal]`, `[Issue]`, `[Milestone]`) for legibility on paper
+  - All animations disabled; row hover disabled
+  - Hairline ledger rule retained (actually more useful on paper)
+  - Existing `.no-print` toolbar class convention applies to filter pills and Add Task
+
+#### Open question — dark mode
+
+Not in the locked decisions. **Recommended answer: defer to v2.** The `policydb-design-system` palette is tuned for warm-neutral light surfaces; inverting it cleanly requires a parallel token set and bespoke chip-background handling. Mark's primary use case is Windows daytime, so parchment-on-brand doesn't glare in most sessions. Re-evaluate after his first week if a dark-theme-wide Windows user finds the light surface uncomfortable. Don't build it into v1.
+
+---
+
 ## Deliverable 2 — Cross-Platform Desktop App
 
 ### Architecture
@@ -407,7 +510,7 @@ Pulled forward so reviewers can hold the implementation to these:
 - Visual mockup (Layout E, selected): `.superpowers/brainstorm/20920-1776515539/content/today-layout-dense.html` (a duplicate copy exists at `.superpowers/brainstorm/27004-1776517917/content/today-layout-dense.html`).
 - Brainstorm summary memory: `project_multi_user_tasklist_brainstorm.md`.
 - Related memories: `user_add_focus.md` (density caveat), `feedback_touch_once_data_flow.md`, `feedback_icloud_deadlock.md`, `project_outlook_integration.md`, `project_tui_build.md`.
-- Relevant skills: `policydb-spreadsheet` (Tabulator), `policydb-activities` (follow-up lifecycle), `policydb-route-patterns` (literals-first, HTMX row pattern), `policydb-design-system`.
+- Relevant skills: `policydb-design-system` (color tokens, typography, chip/button/pill conventions — the Visual Refinements section above leans heavily on this), `policydb-spreadsheet` (Tabulator), `policydb-activities` (follow-up lifecycle), `policydb-route-patterns` (literals-first, HTMX row pattern).
 
 ---
 
