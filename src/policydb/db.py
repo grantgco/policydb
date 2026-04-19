@@ -8,13 +8,15 @@ import re
 import sqlite3
 from pathlib import Path
 
+from policydb import paths as _paths
+
 logger = logging.getLogger("policydb.db")
 
 
-DB_DIR = Path.home() / ".policydb"
-DB_PATH = DB_DIR / "policydb.sqlite"
-EXPORTS_DIR = DB_DIR / "exports"
-CONFIG_PATH = DB_DIR / "config.yaml"
+DB_DIR = _paths.DATA_DIR
+DB_PATH = _paths.DATA_DIR / "policydb.sqlite"
+EXPORTS_DIR = _paths.DATA_DIR / "exports"
+CONFIG_PATH = _paths.DATA_DIR / "config.yaml"
 
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 

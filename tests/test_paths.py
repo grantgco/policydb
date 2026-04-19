@@ -58,10 +58,22 @@ def test_outlook_available_only_on_mac():
         assert paths.outlook_available() is False
 
 
+def test_db_module_uses_paths_data_dir(tmp_path, monkeypatch):
+    """db.DB_DIR and db.DB_PATH must come from policydb.paths, not local literals."""
+    monkeypatch.setattr("policydb.paths.DATA_DIR", tmp_path)
+    from importlib import reload
+    import policydb.db as db
+    reload(db)
+    assert db.DB_DIR == tmp_path
+    assert db.DB_PATH == tmp_path / "policydb.sqlite"
+
+
 @pytest.fixture(autouse=True)
 def restore_paths_module():
-    """Reload policydb.paths back to its real state after each test."""
+    """Reload policydb.paths and policydb.db back to their real state after each test."""
     yield
     import policydb.paths as paths
+    import policydb.db as db
     from importlib import reload
     reload(paths)
+    reload(db)
