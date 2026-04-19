@@ -513,6 +513,52 @@ WHERE a.item_kind = 'issue' AND a.merged_into_id IS NOT NULL
   AND a.program_id IS NOT NULL AND p.archived = 0
 """
 
+V_TODAY_TASKS = """
+CREATE VIEW v_today_tasks AS
+SELECT
+    a.id,
+    a.subject,
+    a.details,
+    a.item_kind                AS kind,
+    CASE
+        WHEN a.follow_up_date < date('now')                        THEN 3
+        WHEN a.follow_up_date = date('now')                        THEN 2
+        WHEN a.follow_up_date = date('now', '+1 day')              THEN 1
+        ELSE 0
+    END                        AS priority,
+    a.follow_up_date,
+    a.client_id,
+    c.name                     AS client_name,
+    a.policy_id,
+    p.policy_uid,
+    COALESCE(co.name, a.contact_person)   AS contact_person,
+    a.disposition,
+    CASE WHEN a.disposition LIKE 'Waiting%' THEN 1 ELSE 0 END AS is_waiting,
+    -- Last activity on same (client, policy) pair, for the context line
+    (SELECT MAX(a2.created_at)
+       FROM activity_log a2
+      WHERE (a2.client_id = a.client_id OR (a2.client_id IS NULL AND a.client_id IS NULL))
+        AND (a2.policy_id IS a.policy_id)
+        AND a2.id != a.id)      AS last_activity_at,
+    -- Days the row has been in a Waiting disposition (for nudge-age visual)
+    CASE
+        WHEN a.disposition LIKE 'Waiting%'
+        THEN CAST(julianday('now') - julianday(a.activity_date) AS INTEGER)
+        ELSE NULL
+    END                        AS waiting_days,
+    a.created_at,
+    a.created_at               AS updated_at   -- activity_log has no updated_at column; use created_at as placeholder
+FROM activity_log a
+LEFT JOIN clients  c  ON a.client_id = c.id
+LEFT JOIN policies p  ON a.policy_id = p.id
+LEFT JOIN contacts co ON a.contact_id = co.id
+WHERE a.follow_up_done = 0
+  AND a.follow_up_date IS NOT NULL
+  AND a.merged_into_id IS NULL
+  AND a.auto_closed_at IS NULL
+  AND a.item_kind IN ('followup', 'issue')
+"""
+
 ALL_VIEWS = {
     "v_policy_status": V_POLICY_STATUS,
     "v_client_summary": V_CLIENT_SUMMARY,
@@ -523,4 +569,5 @@ ALL_VIEWS = {
     "v_review_queue": V_REVIEW_QUEUE,
     "v_review_clients": V_REVIEW_CLIENTS,
     "v_issue_policy_coverage": V_ISSUE_POLICY_COVERAGE,
+    "v_today_tasks": V_TODAY_TASKS,
 }
