@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel
 
+import policydb.paths as _paths_mod
 from policydb import config as cfg
 from policydb.ref_tags import build_wide_search
 from policydb.web.app import get_db, templates as jinja_templates
@@ -31,6 +32,12 @@ router = APIRouter(prefix="/outlook", tags=["outlook"])
 # `acquire(blocking=False)` lets us reject a second sync immediately with a
 # 409 instead of queuing it up.
 _sync_lock = threading.Lock()
+
+
+def _check_outlook_platform():
+    """Raise 404 when running on a platform that doesn't support the Outlook bridge."""
+    if not _paths_mod.outlook_available():
+        raise HTTPException(status_code=404, detail="Outlook integration is macOS only")
 
 
 class ComposeRequest(BaseModel):
@@ -63,6 +70,7 @@ class OutlookSearchRequest(BaseModel):
 @router.get("/status")
 def outlook_status():
     """Check if Outlook is available."""
+    _check_outlook_platform()
     return JSONResponse({"available": is_outlook_available()})
 
 
@@ -74,6 +82,7 @@ def outlook_compose(req: ComposeRequest, conn=Depends(get_db)):
     optionally inserts a policy table, and calls AppleScript to create
     the draft in Outlook.
     """
+    _check_outlook_platform()
     # Build context for ref tag and policy table
     ctx: dict = {}
     policy_table_html = None
@@ -250,6 +259,7 @@ def outlook_search(
     conn=Depends(get_db),
 ):
     """Generate a wide Outlook search query and attempt to run it."""
+    _check_outlook_platform()
     from policydb import outlook as outlook_mod  # late import to allow monkeypatch in tests
 
     auto_paste = bool(cfg.load_config().get("outlook_search_auto_paste", True))
@@ -285,6 +295,7 @@ def outlook_sync(request: Request, conn=Depends(get_db)):
     runs would race on `last_outlook_sync`, spawn duplicate osascript
     subprocesses, and contend for SQLite write locks.
     """
+    _check_outlook_platform()
     from policydb.email_sync import sync_outlook, crawl_folders
 
     # Non-blocking: reject the second caller immediately rather than queueing

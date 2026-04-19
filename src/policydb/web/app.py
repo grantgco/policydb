@@ -212,6 +212,17 @@ def _fmt_hours(value) -> str:
         return "—"
 
 
+def _fmt_hours_bare(value) -> str:
+    """Strip trailing zeros, no unit suffix. Used in contenteditable cells where the
+    column context already implies hours: 1.0 → '1', 1.5 → '1.5', 0.75 → '0.75', None/0 → ''."""
+    if value is None or value == 0:
+        return ""
+    try:
+        return f"{float(value):.2f}".rstrip("0").rstrip(".")
+    except (TypeError, ValueError):
+        return ""
+
+
 templates.env.filters["currency"] = _fmt_currency
 templates.env.filters["currency_short"] = _fmt_currency_short
 templates.env.filters["urgency_class"] = _urgency_class
@@ -221,13 +232,18 @@ templates.env.filters["dict_merge"] = _dict_merge
 templates.env.filters["path_quote"] = _path_quote
 templates.env.filters["safe_id"] = _safe_id
 templates.env.filters["format_hours"] = _fmt_hours
+templates.env.filters["format_hours_bare"] = _fmt_hours_bare
 templates.env.filters["fromjson"] = lambda s: __import__("json").loads(s) if s else []
 
 # ── Template globals ─────────────────────────────────────────────────────────
 from policydb import __version__ as _app_version
 from policydb.utils import build_ref_tag as _build_ref_tag
+import policydb.paths as _paths_mod
 templates.env.globals["app_version"] = _app_version
 templates.env.globals["build_ref_tag"] = _build_ref_tag
+# Use a lambda so monkeypatching policydb.paths.outlook_available in tests
+# is picked up at call time rather than frozen at import time.
+templates.env.globals["outlook_available"] = lambda: _paths_mod.outlook_available()
 
 import policydb.config as _cfg
 def _followup_workload_thresholds():

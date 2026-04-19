@@ -1,17 +1,21 @@
 {#
   Context: activity (dict from payload.days[i].activities[j])
 #}
-<div class="activity-row flex items-center gap-2 py-1 text-xs border-t border-stone-100"
+<div class="activity-row ts-row flex items-center gap-2 py-1 text-xs border-t border-stone-100"
      data-activity-id="{{ activity.id }}"
      data-reviewed="{{ 'true' if activity.reviewed_at else 'false' }}">
-  <span class="flex-1 truncate subject"
+
+  {% include "timesheet/_activity_pills.html" %}
+
+  <span class="ts-subject flex-1 min-w-0 truncate"
         contenteditable="plaintext-only"
+        data-placeholder="What did you work on?"
         hx-patch="/timesheet/activity/{{ activity.id }}"
         hx-trigger="blur changed"
         hx-vals='js:{subject: event.target.innerText}'
         hx-swap="none">{{ activity.subject }}</span>
 
-  <select class="activity-type border-0 bg-transparent text-xs"
+  <select class="ts-type border-0 bg-transparent text-xs"
           hx-patch="/timesheet/activity/{{ activity.id }}"
           hx-trigger="change"
           hx-vals='js:{activity_type: event.target.value}'
@@ -21,12 +25,13 @@
     {% endfor %}
   </select>
 
-  <span class="hours font-mono text-right w-12"
+  <span class="ts-hours font-mono text-right w-12"
         contenteditable="plaintext-only"
+        data-placeholder="—"
         hx-patch="/timesheet/activity/{{ activity.id }}"
         hx-trigger="blur changed, keyup[keyCode==13]"
         hx-vals='js:{duration_hours: event.target.innerText}'
-        hx-swap="none">{{ "%.2f"|format(activity.duration_hours) if activity.duration_hours is not none else "—" }}</span>
+        hx-swap="none">{{ activity.duration_hours | format_hours_bare }}</span>
 
   <span class="review-mark w-4 text-center
                {% if activity.reviewed_at %}text-emerald-600{% else %}text-amber-600{% endif %}">

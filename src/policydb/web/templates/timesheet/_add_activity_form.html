@@ -1,28 +1,95 @@
 {#
-  Context: day (dict with .date), client_list (list of {id, name})
+  Context: day (dict with .date), client_list (list of {id, name}).
+  Uses native <datalist> for typeahead combobox — cascade wired by timesheet.js.
 #}
-<form class="add-activity-form flex flex-wrap gap-2 pt-2 mt-2 border-t border-dashed border-stone-300"
+<form class="add-activity-form flex flex-wrap items-end gap-2 pt-2 mt-2
+             border-t border-dashed border-stone-300"
       hx-post="/timesheet/activity"
       hx-target="#timesheet-panel"
       hx-swap="outerHTML"
       hx-on::after-request="if(event.detail.successful) htmx.ajax('GET', '/timesheet/panel', '#timesheet-panel')">
+
   <input type="hidden" name="activity_date" value="{{ day.date }}">
-  <select name="client_id" class="text-xs border rounded px-1 py-0.5" required>
-    <option value="">(client…)</option>
+
+  {# Client — typeahead + hidden id #}
+  <label class="flex flex-col text-[10px] uppercase text-stone-500 tracking-wider">
+    Client*
+    <input list="ts-options-client"
+           class="ts-combo w-48 text-xs border border-stone-300 rounded px-2 py-1 mt-0.5"
+           placeholder="Type to search…"
+           data-cascade="client"
+           required>
+  </label>
+  <datalist id="ts-options-client">
     {% for c in client_list %}
-      <option value="{{ c.id }}">{{ c.name }}</option>
+      <option value="{{ c.name }}" data-id="{{ c.id }}"></option>
     {% endfor %}
-  </select>
-  <select name="activity_type" class="text-xs border rounded px-1 py-0.5">
-    {% for t in ["Note", "Email", "Call", "Meeting", "Task"] %}
-      <option value="{{ t }}">{{ t }}</option>
-    {% endfor %}
-  </select>
-  <input name="subject" class="flex-1 text-xs border rounded px-1 py-0.5"
-         placeholder="What did you work on?" required>
-  <input name="duration_hours" class="w-14 text-xs border rounded px-1 py-0.5 text-right"
-         placeholder="h" inputmode="decimal">
-  <button class="text-xs bg-policydb-blue text-white rounded px-2 py-0.5">Add</button>
-  <button type="button" class="text-xs text-stone-500"
-          onclick="this.closest('.add-slot').innerHTML=''">Cancel</button>
+  </datalist>
+  <input type="hidden" name="client_id" data-cascade-id="client" required>
+
+  {# Policy #}
+  <label class="flex flex-col text-[10px] uppercase text-stone-500 tracking-wider">
+    Policy
+    <input list="ts-options-policy"
+           class="ts-combo w-40 text-xs border border-stone-300 rounded px-2 py-1 mt-0.5"
+           placeholder="(optional)"
+           data-cascade="policy">
+  </label>
+  <datalist id="ts-options-policy"></datalist>
+  <input type="hidden" name="policy_id" data-cascade-id="policy">
+
+  {# Project #}
+  <label class="flex flex-col text-[10px] uppercase text-stone-500 tracking-wider">
+    Project
+    <input list="ts-options-project"
+           class="ts-combo w-40 text-xs border border-stone-300 rounded px-2 py-1 mt-0.5"
+           placeholder="(optional)"
+           data-cascade="project">
+  </label>
+  <datalist id="ts-options-project"></datalist>
+  <input type="hidden" name="project_id" data-cascade-id="project">
+
+  {# Issue #}
+  <label class="flex flex-col text-[10px] uppercase text-stone-500 tracking-wider">
+    Issue
+    <input list="ts-options-issue"
+           class="ts-combo w-40 text-xs border border-stone-300 rounded px-2 py-1 mt-0.5"
+           placeholder="(optional)"
+           data-cascade="issue">
+  </label>
+  <datalist id="ts-options-issue"></datalist>
+  <input type="hidden" name="issue_id" data-cascade-id="issue">
+
+  {# Type #}
+  <label class="flex flex-col text-[10px] uppercase text-stone-500 tracking-wider">
+    Type
+    <select name="activity_type"
+            class="text-xs border border-stone-300 rounded px-2 py-1 mt-0.5">
+      {% for t in (activity_types or ["Note", "Email", "Call", "Meeting"]) %}
+        <option value="{{ t }}">{{ t }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  {# Subject #}
+  <label class="flex flex-col text-[10px] uppercase text-stone-500 tracking-wider flex-1 min-w-[180px]">
+    Subject*
+    <input name="subject"
+           class="text-xs border border-stone-300 rounded px-2 py-1 mt-0.5"
+           placeholder="What did you work on?" required>
+  </label>
+
+  {# Hours #}
+  <label class="flex flex-col text-[10px] uppercase text-stone-500 tracking-wider">
+    Hours
+    <input name="duration_hours"
+           class="text-xs border border-stone-300 rounded px-2 py-1 mt-0.5 w-16 text-right"
+           placeholder="h" inputmode="decimal">
+  </label>
+
+  <div class="flex gap-2">
+    <button class="text-xs bg-policydb-blue text-white rounded px-3 py-1.5">Add</button>
+    <button type="button" class="text-xs text-stone-500"
+            onclick="this.closest('.add-slot').innerHTML=''">Cancel</button>
+  </div>
 </form>

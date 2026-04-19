@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import yaml
 
-from policydb.db import CONFIG_PATH
+import policydb.paths as _paths
+
+CONFIG_PATH = _paths.DATA_DIR / "config.yaml"
 
 _DEFAULTS: dict[str, Any] = {
     "default_account_exec": "Grant",
@@ -17,8 +18,8 @@ _DEFAULTS: dict[str, Any] = {
         "warning": 120,
         "upcoming": 180,
     },
-    "export_dir": str(Path.home() / ".policydb" / "exports"),
-    "report_logo_path": str(Path.home() / ".policydb" / "logo.png"),
+    "export_dir": str(_paths.DATA_DIR / "exports"),
+    "report_logo_path": str(_paths.DATA_DIR / "logo.png"),
     "stale_threshold_days": 14,
     "focus_score_weights": {
         "deadline_proximity": 40,

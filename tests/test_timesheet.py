@@ -334,6 +334,79 @@ def test_no_closeout_for_non_week_range(tmp_db):
     conn.close()
 
 
+def test_load_activities_includes_context_fields(tmp_db):
+    conn = get_connection(tmp_db)
+    from policydb.timesheet import _load_activities
+    cid = _seed_client(conn, "Acme")
+    pid = _seed_policy(conn, client_id=cid, expiration_date="2026-12-31")
+    conn.execute(
+        "INSERT INTO projects (client_id, name) VALUES (?, 'Plant 3')",
+        (cid,),
+    )
+    prj_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+    iss_id = conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, subject, activity_type,
+            item_kind, issue_uid, follow_up_done)
+           VALUES ('2026-04-13', ?, 'WC audit dispute', 'Issue',
+                   'issue', 'ISS-001', 0)""",
+        (cid,),
+    ).lastrowid
+    conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, policy_id, project_id, issue_id,
+            subject, activity_type, duration_hours, item_kind)
+           VALUES ('2026-04-13', ?, ?, ?, ?, 'Follow up', 'Call', 0.5,
+                   'activity')""",
+        (cid, pid, prj_id, iss_id),
+    )
+    conn.commit()
+
+    rows = _load_activities(conn, date(2026, 4, 13), date(2026, 4, 13))
+    assert len(rows) == 2
+    work_row = next(r for r in rows if r["item_kind"] == "activity")
+    assert work_row["client_name"] == "Acme"
+    assert work_row["policy_uid"] is not None
+    assert work_row["project_name"] == "Plant 3"
+    assert work_row["issue_uid"] == "ISS-001"
+    assert work_row["issue_subject"] == "WC audit dispute"
+    conn.close()
+
+
+def test_build_payload_exposes_context_hrefs(tmp_db):
+    conn = get_connection(tmp_db)
+    from policydb.timesheet import build_timesheet_payload
+    cid = _seed_client(conn, "Acme")
+    pid = _seed_policy(conn, client_id=cid, expiration_date="2026-12-31")
+    conn.execute(
+        "INSERT INTO projects (client_id, name) VALUES (?, 'Plant 3')",
+        (cid,),
+    )
+    prj_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+    conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, policy_id, project_id,
+            subject, activity_type, duration_hours, item_kind)
+           VALUES ('2026-04-13', ?, ?, ?, 'Follow up', 'Call', 0.5, 'activity')""",
+        (cid, pid, prj_id),
+    )
+    conn.commit()
+
+    payload = build_timesheet_payload(
+        conn, start=date(2026, 4, 13), end=date(2026, 4, 13),
+    )
+    act = payload["days"][0]["activities"][0]
+    assert act["client_name"] == "Acme"
+    assert act["client_href"] == f"/clients/{cid}"
+    assert act["policy_uid"].startswith("POL-")
+    assert act["policy_href"] == f"/policies/{act['policy_uid']}/edit"
+    assert act["project_name"] == "Plant 3"
+    assert act["project_href"] == f"/clients/{cid}/projects/{prj_id}"
+    assert act["issue_uid"] is None
+    assert act["issue_href"] is None
+    conn.close()
+
+
 def test_get_timesheet_badge(tmp_db):
     conn = get_connection(tmp_db)
     from policydb.queries import get_timesheet_badge
