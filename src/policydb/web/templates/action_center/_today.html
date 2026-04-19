@@ -1,0 +1,50 @@
+{# Today tab — Tabulator grid + filter pills + Smart Suggestions rail.
+
+   Data flowed in via action_center_page:
+     today_rows  — list of dict, mirrors v_today_tasks
+     all_clients — list of dict(id, name) for Add Task combobox
+     nudge_days  — int, cfg.focus_nudge_alert_days
+     today_label — formatted date heading (computed server-side)
+#}
+
+<div class="today-tab" data-tab="today">
+  <div class="today-editorial">
+    <h2 class="today-date">{{ today_label }}</h2>
+    <hr class="today-rule" />
+    <div class="today-stats">
+      {{ today_rows | length }} open · {{ today_rows | selectattr("priority", "equalto", 3) | list | length }} overdue
+    </div>
+  </div>
+
+  <div class="today-toolbar" role="toolbar">
+    <div class="today-filters">
+      <button class="filter-pill all-open" data-filter="all">All open</button>
+      <button class="filter-pill active" data-filter="overdue">Overdue</button>
+      <button class="filter-pill active" data-filter="today">Today</button>
+      <button class="filter-pill active" data-filter="tomorrow">Tomorrow</button>
+      <button class="filter-pill" data-filter="this-week">This week</button>
+      <button class="filter-pill" data-filter="waiting">Waiting</button>
+      <button class="filter-pill" data-filter="standalone">Standalone</button>
+    </div>
+    <div class="today-actions">
+      <a href="/followups/plan" class="today-planweek-link">Plan Week →</a>
+      <button class="btn btn-primary" id="today-add-task-btn">
+        + Add task <span class="kbd-hint">⌘N</span>
+      </button>
+    </div>
+  </div>
+
+  <div id="today-grid" class="today-grid"
+       data-rows='{{ today_rows | tojson }}'
+       data-nudge-days="{{ nudge_days }}"></div>
+
+  <aside id="today-suggestions"
+         class="today-suggestions"
+         hx-get="/action-center/today/suggestions"
+         hx-trigger="load delay:200ms, every 5m"
+         hx-swap="innerHTML">
+    <div class="today-suggestions-loading">Loading suggestions…</div>
+  </aside>
+</div>
+
+{% include "action_center/_add_task_modal.html" %}

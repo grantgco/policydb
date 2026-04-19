@@ -962,6 +962,21 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
             "activity_types": cfg.get("activity_types", []),
             "all_contact_names": all_contact_names_fq,
         }
+    elif initial_tab == "today":
+        today_rows = conn.execute(
+            "SELECT * FROM v_today_tasks ORDER BY priority DESC, follow_up_date ASC, id ASC"
+        ).fetchall()
+        all_clients = conn.execute(
+            "SELECT id, name FROM clients WHERE archived = 0 ORDER BY name"
+        ).fetchall()
+        nudge_days = cfg.get("focus_nudge_alert_days", 10)
+        tab_ctx = {
+            "today_rows": [dict(r) for r in today_rows],
+            "all_clients": [dict(c) for c in all_clients],
+            "nudge_days": nudge_days,
+            "today_label": date.today().strftime("%A · %B %-d"),
+            "ac_tab": "today",
+        }
     elif initial_tab == "inbox":
         tab_ctx = _inbox_ctx(conn)
     elif initial_tab == "activities":
