@@ -84,6 +84,40 @@ def test_outlook_available_is_jinja_global():
     assert callable(templates.env.globals["outlook_available"])
 
 
+@pytest.fixture
+def app_client(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.sqlite"
+    monkeypatch.setattr("policydb.db.DB_PATH", db_path)
+    monkeypatch.setattr("policydb.db.DB_DIR", tmp_path)
+    monkeypatch.setattr("policydb.db.EXPORTS_DIR", tmp_path / "exports")
+    monkeypatch.setattr("policydb.db.CONFIG_PATH", tmp_path / "config.yaml")
+    from policydb.db import init_db
+    init_db(path=db_path)
+    from policydb.web.app import app
+    from fastapi.testclient import TestClient
+    with TestClient(app) as c:
+        yield c
+
+
+def test_outlook_status_404_on_windows(app_client, monkeypatch):
+    monkeypatch.setattr("policydb.paths.outlook_available", lambda: False)
+    r = app_client.get("/outlook/status")
+    assert r.status_code == 404
+
+
+def test_outlook_sync_404_on_windows(app_client, monkeypatch):
+    monkeypatch.setattr("policydb.paths.outlook_available", lambda: False)
+    r = app_client.post("/outlook/sync")
+    assert r.status_code in (404, 405)  # 405 if form validation runs first
+
+
+def test_base_template_hides_sync_outlook_on_windows(app_client, monkeypatch):
+    monkeypatch.setattr("policydb.paths.outlook_available", lambda: False)
+    r = app_client.get("/action-center")
+    assert r.status_code == 200
+    assert "Sync Outlook" not in r.text
+
+
 @pytest.fixture(autouse=True)
 def restore_paths_module():
     """Reload policydb.paths and policydb.db back to their real state after each test."""

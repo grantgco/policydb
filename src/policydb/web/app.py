@@ -238,10 +238,12 @@ templates.env.filters["fromjson"] = lambda s: __import__("json").loads(s) if s e
 # ── Template globals ─────────────────────────────────────────────────────────
 from policydb import __version__ as _app_version
 from policydb.utils import build_ref_tag as _build_ref_tag
-from policydb.paths import outlook_available as _outlook_available
+import policydb.paths as _paths_mod
 templates.env.globals["app_version"] = _app_version
 templates.env.globals["build_ref_tag"] = _build_ref_tag
-templates.env.globals["outlook_available"] = _outlook_available
+# Use a lambda so monkeypatching policydb.paths.outlook_available in tests
+# is picked up at call time rather than frozen at import time.
+templates.env.globals["outlook_available"] = lambda: _paths_mod.outlook_available()
 
 import policydb.config as _cfg
 def _followup_workload_thresholds():
