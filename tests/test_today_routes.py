@@ -106,3 +106,34 @@ def test_task_create_with_policy_supersedes_older_followup(app_client):
         "SELECT follow_up_done FROM activity_log WHERE id = ?", (older_id,)
     ).fetchone()
     assert older["follow_up_done"] == 1, "older open follow-up on same policy should have been superseded"
+
+
+def test_task_complete_sets_follow_up_done(app_client):
+    app_client.post("/tasks/create", data={"subject": "Temp task"})
+    conn = get_connection()
+    tid = conn.execute("SELECT id FROM activity_log WHERE subject = 'Temp task'").fetchone()["id"]
+
+    r = app_client.post(f"/tasks/{tid}/complete")
+    assert r.status_code == 204
+    row = conn.execute("SELECT follow_up_done FROM activity_log WHERE id = ?", (tid,)).fetchone()
+    assert row["follow_up_done"] == 1
+
+
+def test_task_complete_emits_hx_trigger(app_client):
+    app_client.post("/tasks/create", data={"subject": "Trigger task"})
+    conn = get_connection()
+    tid = conn.execute("SELECT id FROM activity_log WHERE subject = 'Trigger task'").fetchone()["id"]
+    r = app_client.post(f"/tasks/{tid}/complete")
+    assert "taskCompleted" in r.headers.get("HX-Trigger", "")
+
+
+def test_task_undo_complete_reopens_task(app_client):
+    app_client.post("/tasks/create", data={"subject": "Undo me"})
+    conn = get_connection()
+    tid = conn.execute("SELECT id FROM activity_log WHERE subject = 'Undo me'").fetchone()["id"]
+    app_client.post(f"/tasks/{tid}/complete")
+
+    r = app_client.post(f"/tasks/{tid}/undo-complete")
+    assert r.status_code == 204
+    row = conn.execute("SELECT follow_up_done FROM activity_log WHERE id = ?", (tid,)).fetchone()
+    assert row["follow_up_done"] == 0

@@ -1644,3 +1644,35 @@ def task_create(
     resp = Response(status_code=201)
     resp.headers["HX-Trigger"] = json.dumps({"taskCreated": {"id": new_id, "subject": subject}})
     return resp
+
+
+@router.post("/tasks/{task_id}/complete", response_class=Response)
+def task_complete(task_id: int, conn=Depends(get_db)):
+    """Mark a task complete. Returns 204 + HX-Trigger so the client can render the undo toast."""
+    row = conn.execute(
+        "SELECT subject FROM activity_log WHERE id = ? AND item_kind = 'followup'",
+        (task_id,),
+    ).fetchone()
+    if not row:
+        return Response(status_code=404)
+    conn.execute("UPDATE activity_log SET follow_up_done = 1 WHERE id = ?", (task_id,))
+    conn.commit()
+    logger.info("Task %s completed: %r", task_id, row["subject"])
+
+    resp = Response(status_code=204)
+    resp.headers["HX-Trigger"] = json.dumps({
+        "taskCompleted": {"id": task_id, "subject": row["subject"]}
+    })
+    return resp
+
+
+@router.post("/tasks/{task_id}/undo-complete", response_class=Response)
+def task_undo_complete(task_id: int, conn=Depends(get_db)):
+    """Re-open a completed task (fired by the 5s undo toast)."""
+    conn.execute(
+        "UPDATE activity_log SET follow_up_done = 0 WHERE id = ? AND item_kind = 'followup'",
+        (task_id,),
+    )
+    conn.commit()
+    logger.info("Task %s re-opened via undo", task_id)
+    return Response(status_code=204)
