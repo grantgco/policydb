@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date, datetime, timedelta
 
@@ -19,6 +20,7 @@ from policydb.activity_review import (
     scan_for_unlogged_sessions,
 )
 from policydb.queries import (
+    create_followup_activity,
     get_activities,
     get_all_followups,
     get_dashboard_hours_this_month,
@@ -1616,9 +1618,9 @@ def task_create(
     """Create a new task (follow-up). Subject required; everything else optional.
 
     Standalone tasks: omit client_id or pass 0 — stored as NULL.
+    Uses the canonical `create_followup_activity` helper so supersession,
+    auto-linking, and `default_account_exec` config are all honored.
     """
-    import json
-
     subject = (subject or "").strip()
     if not subject:
         return HTMLResponse("Subject is required", status_code=422)
@@ -1626,20 +1628,19 @@ def task_create(
         return HTMLResponse("Subject must be 200 chars or fewer", status_code=422)
 
     fu_date = follow_up_date or date.today().isoformat()
-    conn.execute(
-        """INSERT INTO activity_log
-           (activity_date, client_id, policy_id, activity_type, subject,
-            follow_up_date, follow_up_done, item_kind, account_exec, contact_person)
-           VALUES (CURRENT_DATE, ?, ?, 'Task', ?, ?, 0, 'followup',
-                   'Grant',
-                   ?)""",
-        # TODO phase 8: replace hard-coded 'Grant' with config.user_name after onboarding ships
-        (client_id or None, policy_id or None, subject, fu_date, contact_person or None),
+    new_id = create_followup_activity(
+        conn,
+        client_id=client_id or None,
+        policy_id=policy_id or None,
+        issue_id=None,
+        subject=subject,
+        activity_type="Task",
+        follow_up_date=fu_date,
+        contact_person=contact_person or None,
     )
-    new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.commit()
     logger.info("Task created: id=%s subject=%r", new_id, subject)
 
-    resp = HTMLResponse("", status_code=201)
+    resp = Response(status_code=201)
     resp.headers["HX-Trigger"] = json.dumps({"taskCreated": {"id": new_id, "subject": subject}})
     return resp

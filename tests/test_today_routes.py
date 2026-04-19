@@ -72,3 +72,37 @@ def test_task_create_standalone(app_client):
 def test_task_create_rejects_empty_subject(app_client):
     r = app_client.post("/tasks/create", data={"subject": ""})
     assert r.status_code == 422 or r.status_code == 400
+
+
+def test_task_create_with_policy_supersedes_older_followup(app_client):
+    """When creating a task on a policy, older open follow-ups on same policy must close."""
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO clients (name, industry_segment) VALUES ('Super Co', 'Test')"
+    )
+    cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.execute(
+        "INSERT INTO policies (policy_uid, client_id, policy_type, carrier, effective_date, expiration_date) "
+        "VALUES ('POL-S1', ?, 'GL', 'Test', '2026-01-01', '2027-01-01')",
+        (cid,),
+    )
+    pid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, policy_id, activity_type, "
+        "subject, follow_up_date, follow_up_done, item_kind, account_exec) "
+        "VALUES ('2026-04-15', ?, ?, 'Call', 'older', '2026-04-20', 0, 'followup', 'Grant')",
+        (cid, pid),
+    )
+    older_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit()
+
+    r = app_client.post(
+        "/tasks/create",
+        data={"subject": "newer", "client_id": cid, "policy_id": pid, "follow_up_date": "2026-04-25"},
+    )
+    assert r.status_code == 201
+
+    older = conn.execute(
+        "SELECT follow_up_done FROM activity_log WHERE id = ?", (older_id,)
+    ).fetchone()
+    assert older["follow_up_done"] == 1, "older open follow-up on same policy should have been superseded"
