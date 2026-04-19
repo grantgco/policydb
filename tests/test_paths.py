@@ -77,6 +77,13 @@ def test_config_module_uses_paths_data_dir(tmp_path, monkeypatch):
     assert cfg.CONFIG_PATH == tmp_path / "config.yaml"
 
 
+def test_outlook_available_is_jinja_global():
+    """outlook_available must be callable from any template."""
+    from policydb.web.app import templates
+    assert "outlook_available" in templates.env.globals
+    assert callable(templates.env.globals["outlook_available"])
+
+
 @pytest.fixture(autouse=True)
 def restore_paths_module():
     """Reload policydb.paths and policydb.db back to their real state after each test."""

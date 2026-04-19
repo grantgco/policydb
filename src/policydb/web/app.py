@@ -238,8 +238,10 @@ templates.env.filters["fromjson"] = lambda s: __import__("json").loads(s) if s e
 # ── Template globals ─────────────────────────────────────────────────────────
 from policydb import __version__ as _app_version
 from policydb.utils import build_ref_tag as _build_ref_tag
+from policydb.paths import outlook_available as _outlook_available
 templates.env.globals["app_version"] = _app_version
 templates.env.globals["build_ref_tag"] = _build_ref_tag
+templates.env.globals["outlook_available"] = _outlook_available
 
 import policydb.config as _cfg
 def _followup_workload_thresholds():
