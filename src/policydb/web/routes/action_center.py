@@ -1676,3 +1676,45 @@ def task_undo_complete(task_id: int, conn=Depends(get_db)):
     conn.commit()
     logger.info("Task %s re-opened via undo", task_id)
     return Response(status_code=204)
+
+
+@router.post("/tasks/{task_id}/snooze", response_class=Response)
+def task_snooze(
+    task_id: int,
+    option: str = Form(...),
+    date_str: str = Form("", alias="date"),
+    conn=Depends(get_db),
+):
+    """Snooze a task. option ∈ {tomorrow, this_week, next_week, custom}.
+
+    - tomorrow: today + 1 day
+    - this_week: upcoming Monday (today if today IS Monday; else next Monday)
+    - next_week: Monday of the following week
+    - custom: the date passed in date_str (ISO format)
+    """
+    today = date.today()
+    if option == "tomorrow":
+        new_date = today + timedelta(days=1)
+    elif option == "this_week":
+        # Upcoming Monday — today if today is already Monday, else next Monday
+        days_ahead = (0 - today.weekday()) % 7
+        new_date = today + timedelta(days=days_ahead)
+    elif option == "next_week":
+        # Monday of the following week = upcoming Monday + 7 days
+        this_monday_offset = (0 - today.weekday()) % 7  # 0..6
+        new_date = today + timedelta(days=this_monday_offset + 7)
+    elif option == "custom":
+        try:
+            new_date = date.fromisoformat(date_str)
+        except ValueError:
+            return Response("Invalid date", status_code=422)
+    else:
+        return Response(f"Unknown snooze option: {option}", status_code=422)
+
+    conn.execute(
+        "UPDATE activity_log SET follow_up_date = ? WHERE id = ? AND item_kind = 'followup'",
+        (new_date.isoformat(), task_id),
+    )
+    conn.commit()
+    logger.info("Task %s snoozed to %s via %s", task_id, new_date, option)
+    return Response(status_code=200)

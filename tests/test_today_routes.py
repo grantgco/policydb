@@ -1,7 +1,7 @@
 """Route tests for the Today tab and task CRUD endpoints."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -137,3 +137,41 @@ def test_task_undo_complete_reopens_task(app_client):
     assert r.status_code == 204
     row = conn.execute("SELECT follow_up_done FROM activity_log WHERE id = ?", (tid,)).fetchone()
     assert row["follow_up_done"] == 0
+
+
+def test_snooze_tomorrow(app_client):
+    app_client.post("/tasks/create", data={"subject": "Snooze me"})
+    conn = get_connection()
+    tid = conn.execute("SELECT id FROM activity_log WHERE subject = 'Snooze me'").fetchone()["id"]
+
+    r = app_client.post(f"/tasks/{tid}/snooze", data={"option": "tomorrow"})
+    assert r.status_code == 200
+    row = conn.execute("SELECT follow_up_date FROM activity_log WHERE id = ?", (tid,)).fetchone()
+    expected = (date.today() + timedelta(days=1)).isoformat()
+    assert row["follow_up_date"] == expected
+
+
+def test_snooze_this_week_moves_to_next_monday(app_client):
+    app_client.post("/tasks/create", data={"subject": "Next Monday"})
+    conn = get_connection()
+    tid = conn.execute("SELECT id FROM activity_log WHERE subject = 'Next Monday'").fetchone()["id"]
+
+    r = app_client.post(f"/tasks/{tid}/snooze", data={"option": "this_week"})
+    assert r.status_code == 200
+    row = conn.execute("SELECT follow_up_date FROM activity_log WHERE id = ?", (tid,)).fetchone()
+    new = date.fromisoformat(row["follow_up_date"])
+    today = date.today()
+    # Must be a Monday (weekday 0), on or after today.
+    assert new.weekday() == 0
+    assert new >= today
+
+
+def test_snooze_custom_date(app_client):
+    app_client.post("/tasks/create", data={"subject": "Custom"})
+    conn = get_connection()
+    tid = conn.execute("SELECT id FROM activity_log WHERE subject = 'Custom'").fetchone()["id"]
+
+    r = app_client.post(f"/tasks/{tid}/snooze", data={"option": "custom", "date": "2026-05-01"})
+    assert r.status_code == 200
+    row = conn.execute("SELECT follow_up_date FROM activity_log WHERE id = ?", (tid,)).fetchone()
+    assert row["follow_up_date"] == "2026-05-01"
