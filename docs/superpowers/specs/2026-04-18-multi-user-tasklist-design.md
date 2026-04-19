@@ -27,6 +27,17 @@ The two deliverables are coupled because the day one Mark opens the packaged app
 8. **Friction-free upgrade for Grant** — the first time Grant launches the packaged Mac build, his existing `~/.policydb/` data is used without prompting.
 9. **Touch-once principle preserved** — Today tab, Add Task modal, and Smart Suggestions all read from canonical sources and write back to canonical sources. No parallel task table, no scratch follow-up duplication.
 
+## Post-lock schema corrections (2026-04-18)
+
+Self-review against the live `activity_log` schema surfaced four factual mismatches between the original locked decisions and the actual columns. All corrections below were user-approved before plan generation:
+
+1. **Standalone tasks DO require a migration.** Original claim was "no schema migration, just lifting an existing constraint." Actual schema: `activity_log.client_id INTEGER NOT NULL REFERENCES clients(id)`. SQLite can't drop `NOT NULL` without a table rebuild, so a migration `163_allow_standalone_tasks.sql` is necessary. All other "no new task table" intent preserved.
+2. **Waiting pill is driven by `disposition LIKE 'Waiting%'`**, not a non-existent `waiting_on` column. Disposition values like `"Waiting — client"` and `"Waiting — carrier"` already encode this. The nudge-age amber notch triggers when `julianday('now') - julianday(updated_at) > focus_nudge_alert_days` AND disposition is a Waiting value.
+3. **Supersession predicate** in `v_today_tasks` is `merged_into_id IS NULL AND auto_closed_at IS NULL`, not `is_superseded = 0` (which doesn't exist).
+4. **Contact name column is `contact_person`**, not `follow_up_with`. Rename throughout. `contact_id` FK also exists for contacts-table-linked contacts; for display purposes either the FK-resolved name or the freeform `contact_person` is used.
+
+The sections below reflect these corrections in place. Migration number 163 may collide if the paused `2026-04-17-named-insured-compliance` plan resumes first — if so, bump this migration to 164 and the named-insured one keeps 163.
+
 ## Non-goals (v1)
 
 - Multi-user shared data, cross-device sync, or shared tasklists. Every install is its own universe.
@@ -57,7 +68,7 @@ The two deliverables are coupled because the day one Mark opens the packaged app
 
 ### Data model
 
-**No migration.** Follow-ups are already `activity_log` rows keyed by `follow_up_date` + `follow_up_done`. The "standalone task" concept is unlocked by lifting an existing UI-level constraint that required a client link on follow-up creation. Backend accepts `client_id = NULL` on follow-up rows (schema already permits).
+**One small migration.** `activity_log.client_id` is currently `NOT NULL` in the live schema. To support standalone tasks (follow-ups with no client link), migration `163_allow_standalone_tasks.sql` rebuilds the table with `client_id` nullable (standard SQLite ALTER-via-rebuild pattern). No other task-schema changes — follow-ups are still `activity_log` rows keyed by `follow_up_date` + `follow_up_done`.
 
 ### New view — `v_today_tasks`
 
@@ -66,18 +77,19 @@ Rebuilt on every server startup via `src/policydb/views.py` like every other vie
 ```
 id                -- activity_log.id
 subject           -- activity_log.subject
-note              -- activity_log.note (trimmed for context line)
-kind              -- 'task' (always; placeholder for future differentiation)
+details           -- activity_log.details (trimmed for context line)
+kind              -- activity_log.item_kind (usually 'followup'; 'issue' for linked issues)
 priority          -- derived from follow_up_date vs today (overdue=3, today=2, tomorrow=1, later=0)
 follow_up_date    -- DATE; drives the bucket filter pills
-client_id         -- NULLABLE (null = standalone)
-client_name       -- JOINed display string
+client_id         -- NULLABLE after migration 163 (null = standalone task)
+client_name       -- JOINed from clients (NULL when standalone)
 policy_id         -- NULLABLE
-policy_uid        -- JOINed display string
-contact_name      -- activity_log.follow_up_with (freeform name)
-last_activity_at  -- MAX(activity_log.activity_at) on same (client, policy) for the context line
-waiting_on        -- activity_log.waiting_on (NULLABLE — populates the "Waiting" bucket)
-waiting_since     -- days since waiting started, used for the amber-nudge row flag
+policy_uid        -- JOINed from policies
+contact_person    -- activity_log.contact_person (freeform) OR resolved via contact_id FK
+disposition       -- activity_log.disposition ('My action' | 'Waiting — client' | 'Waiting — carrier' | 'Scheduled' | etc.)
+is_waiting        -- 1 when disposition LIKE 'Waiting%', else 0 (drives the Waiting pill and nudge-age visual)
+last_activity_at  -- MAX(activity_log.created_at) on same (client, policy) as context-line signal
+waiting_days      -- julianday('now') - julianday(COALESCE(updated_ts, activity_date)) when is_waiting=1, else NULL
 created_at
 updated_at
 ```
@@ -85,7 +97,7 @@ updated_at
 Exclusion rules in the view:
 - `follow_up_done = 0`
 - `follow_up_date IS NOT NULL`
-- `is_superseded = 0`
+- `merged_into_id IS NULL` AND `auto_closed_at IS NULL` (the supersession predicate)
 - Opportunities **are included** as tasks (they are real follow-ups a user created); the exclusion rule only applies to synthetic suggestions.
 
 ### Route + template wiring
@@ -129,13 +141,13 @@ Columns, left to right:
 | 72px | Kind chip | Badge reading "Task" (reserved for future kinds like "Standalone") |
 | flex | Subject + context line | Line 1: `activity_log.subject` bolded. Line 2 muted: `{client_name} · {last_activity_preview}` or "Standalone task" |
 | 180px | Client · Policy | `C123 · POL-042` with Client as link, Policy drill-down via existing slideover pattern |
-| 140px | Contact | `follow_up_with` (freeform) |
+| 140px | Contact | `contact_person` (or name resolved from `contact_id` FK) |
 | 90px | Last | Humanize-formatted `last_activity_at` (e.g., "3d ago") |
 | 90px | Due | `follow_up_date` humanized, colored per priority |
 | 40px | ⋯ | Actions menu: Snooze → {Tomorrow, This week, Next week, Custom}, Edit, Delete |
 
 Row affordances:
-- Rows with `waiting_since > cfg.get("focus_nudge_alert_days", 10)` get a faint amber background (this replaces the "nudge alert" concept from the Focus Queue).
+- Rows with `waiting_days > cfg.get("focus_nudge_alert_days", 10)` get the nudge-age visual (see Visual Refinements § nudge-age). Replaces the "nudge alert" concept from the Focus Queue.
 - Tabulator initial sort: `(priority DESC, follow_up_date ASC, id ASC)`.
 - Tabulator groupBy: none by default. Filter pills above the grid drive the active dataset.
 
@@ -148,7 +160,7 @@ Pill buttons above the grid (multi-select, default-active set noted):
 - **Today** ✓ default-active — `follow_up_date = today`
 - **Tomorrow** ✓ default-active — `follow_up_date = today + 1`
 - **This week** — `follow_up_date` between today and next Sunday
-- **Waiting** — rows where `waiting_on IS NOT NULL` (folds the old Waiting sidebar into a pill; count badge shows `Waiting (N)`)
+- **Waiting** — rows where `is_waiting = 1` (equivalent to `disposition LIKE 'Waiting%'`; folds the old Waiting sidebar into a pill; count badge shows `Waiting (N)`)
 - **Standalone** — rows where `client_id IS NULL`
 
 Pill state persists in `sessionStorage` under `today-filter-pills` (array of active pill IDs). Toggling pills does not re-fetch; Tabulator filtering is in-memory over the already-loaded dataset.
