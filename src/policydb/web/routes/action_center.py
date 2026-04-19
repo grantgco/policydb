@@ -1598,3 +1598,48 @@ def suggested_contact_dismiss(sc_id: int, request: Request, block: int = Form(0)
     )
     conn.commit()
     return suggested_contacts_list(request, conn)
+
+
+# ── Task CRUD (Today tab) ────────────────────────────────────────────────────
+
+
+@router.post("/tasks/create", response_class=HTMLResponse)
+def task_create(
+    request: Request,
+    subject: str = Form(...),
+    client_id: int = Form(0),
+    policy_id: int = Form(0),
+    follow_up_date: str = Form(""),
+    contact_person: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Create a new task (follow-up). Subject required; everything else optional.
+
+    Standalone tasks: omit client_id or pass 0 — stored as NULL.
+    """
+    import json
+
+    subject = (subject or "").strip()
+    if not subject:
+        return HTMLResponse("Subject is required", status_code=422)
+    if len(subject) > 200:
+        return HTMLResponse("Subject must be 200 chars or fewer", status_code=422)
+
+    fu_date = follow_up_date or date.today().isoformat()
+    conn.execute(
+        """INSERT INTO activity_log
+           (activity_date, client_id, policy_id, activity_type, subject,
+            follow_up_date, follow_up_done, item_kind, account_exec, contact_person)
+           VALUES (CURRENT_DATE, ?, ?, 'Task', ?, ?, 0, 'followup',
+                   'Grant',
+                   ?)""",
+        # TODO phase 8: replace hard-coded 'Grant' with config.user_name after onboarding ships
+        (client_id or None, policy_id or None, subject, fu_date, contact_person or None),
+    )
+    new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit()
+    logger.info("Task created: id=%s subject=%r", new_id, subject)
+
+    resp = HTMLResponse("", status_code=201)
+    resp.headers["HX-Trigger"] = json.dumps({"taskCreated": {"id": new_id, "subject": subject}})
+    return resp

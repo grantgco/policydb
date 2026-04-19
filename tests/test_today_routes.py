@@ -32,3 +32,43 @@ def test_today_tab_renders(app_client):
     assert r.status_code == 200
     assert "Today" in r.text
     assert "today-grid" in r.text  # Tabulator mount point
+
+
+def test_task_create_with_client(app_client):
+    conn = get_connection()
+    conn.execute("INSERT INTO clients (name, industry_segment) VALUES ('Acme Co', 'Test')")
+    cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.commit()
+
+    r = app_client.post(
+        "/tasks/create",
+        data={
+            "subject": "Call Acme about renewal",
+            "client_id": cid,
+            "follow_up_date": "2026-04-19",
+            "contact_person": "Sarah Johnson",
+        },
+    )
+    assert r.status_code in (200, 201)
+    row = conn.execute("SELECT * FROM activity_log WHERE subject = 'Call Acme about renewal'").fetchone()
+    assert row is not None
+    assert row["client_id"] == cid
+    assert row["contact_person"] == "Sarah Johnson"
+    assert row["follow_up_date"] == "2026-04-19"
+
+
+def test_task_create_standalone(app_client):
+    r = app_client.post(
+        "/tasks/create",
+        data={"subject": "Standalone reminder", "follow_up_date": "2026-04-19"},
+    )
+    assert r.status_code in (200, 201)
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM activity_log WHERE subject = 'Standalone reminder'").fetchone()
+    assert row is not None
+    assert row["client_id"] is None
+
+
+def test_task_create_rejects_empty_subject(app_client):
+    r = app_client.post("/tasks/create", data={"subject": ""})
+    assert r.status_code == 422 or r.status_code == 400
