@@ -6,6 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		03A9C0DD2F96A29B005967FF /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 03A9C0DC2F96A29B005967FF /* GRDB */; };
+		03A9C0E22F96A2DB005967FF /* Yams in Frameworks */ = {isa = PBXBuildFile; productRef = 03A9C0E12F96A2DB005967FF /* Yams */; };
+		03A9C0E52F96A2F8005967FF /* PhoneNumberKit in Frameworks */ = {isa = PBXBuildFile; productRef = 03A9C0E42F96A2F8005967FF /* PhoneNumberKit */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		03A9C0B32F96A0DC005967FF /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +58,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				03A9C0DD2F96A29B005967FF /* GRDB in Frameworks */,
+				03A9C0E52F96A2F8005967FF /* PhoneNumberKit in Frameworks */,
+				03A9C0E22F96A2DB005967FF /* Yams in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +121,9 @@
 			);
 			name = Coverage;
 			packageProductDependencies = (
+				03A9C0DC2F96A29B005967FF /* GRDB */,
+				03A9C0E12F96A2DB005967FF /* Yams */,
+				03A9C0E42F96A2F8005967FF /* PhoneNumberKit */,
 			);
 			productName = Coverage;
 			productReference = 03A9C0A52F96A0DA005967FF /* Coverage.app */;
@@ -195,6 +207,11 @@
 			);
 			mainGroup = 03A9C09C2F96A0DA005967FF;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				03A9C0DB2F96A29B005967FF /* XCRemoteSwiftPackageReference "GRDB" */,
+				03A9C0E02F96A2DB005967FF /* XCRemoteSwiftPackageReference "Yams" */,
+				03A9C0E32F96A2F8005967FF /* XCRemoteSwiftPackageReference "PhoneNumberKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 03A9C0A62F96A0DA005967FF /* Products */;
 			projectDirPath = "";
@@ -563,6 +580,51 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		03A9C0DB2F96A29B005967FF /* XCRemoteSwiftPackageReference "GRDB" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 7.10.0;
+			};
+		};
+		03A9C0E02F96A2DB005967FF /* XCRemoteSwiftPackageReference "Yams" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/jpsim/Yams";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.2.1;
+			};
+		};
+		03A9C0E32F96A2F8005967FF /* XCRemoteSwiftPackageReference "PhoneNumberKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/marmelroy/PhoneNumberKit";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.2.10;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		03A9C0DC2F96A29B005967FF /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 03A9C0DB2F96A29B005967FF /* XCRemoteSwiftPackageReference "GRDB" */;
+			productName = GRDB;
+		};
+		03A9C0E12F96A2DB005967FF /* Yams */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 03A9C0E02F96A2DB005967FF /* XCRemoteSwiftPackageReference "Yams" */;
+			productName = Yams;
+		};
+		03A9C0E42F96A2F8005967FF /* PhoneNumberKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 03A9C0E32F96A2F8005967FF /* XCRemoteSwiftPackageReference "PhoneNumberKit" */;
+			productName = PhoneNumberKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 03A9C09D2F96A0DA005967FF /* Project object */;
 }
