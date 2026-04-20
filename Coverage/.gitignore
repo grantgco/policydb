@@ -1,0 +1,21 @@
+# macOS / Xcode user state — per-developer, never commit
+.DS_Store
+xcuserdata/
+*.xcuserstate
+
+# Build outputs
+build/
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager resolved file stays committed (pins deps);
+# the build cache does not
+.swiftpm/
+.build/
+Package.resolved.lock
+
+# Xcode archives
+*.xcarchive
