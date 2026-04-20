@@ -52,8 +52,10 @@
     if (!row.client_id && !row.policy_uid) {
       return '<em class="muted">Standalone</em>';
     }
-    const policy = row.policy_uid
-      ? `<span class="ref-pill">${escapeHtml(row.policy_uid)}</span> `
+    const policyUid = row.policy_uid;
+    const policy = policyUid
+      ? `<a href="/policies/${encodeURIComponent(policyUid)}/edit" class="ref-pill-link">`
+        + `<span class="ref-pill">${escapeHtml(policyUid)}</span></a> `
       : "";
     const client = row.client_name
       ? `<a href="/clients/${encodeURIComponent(row.client_id)}">${escapeHtml(row.client_name)}</a>`
@@ -132,6 +134,14 @@
         { column: "id", dir: "asc" },
       ],
       tableBuilt: function () { installSortCaret(this); },
+      rowClick: function (e, row) {
+        // Ignore clicks on the check, actions, or any <a>/<button> within the row —
+        // those have their own handlers. Only open slideover for "body" clicks.
+        const target = e.target;
+        if (!target) return;
+        if (target.closest(".today-check, .actions-btn, a, button")) return;
+        if (window.openTaskSlideover) window.openTaskSlideover(row.getData().id);
+      },
       columns: [
         { title: "", field: "_check", width: 40, hozAlign: "center",
           formatter: completeCheckboxFormatter, cellClick: (e, cell) => onCompleted?.(cell.getRow().getData()) },

@@ -151,8 +151,11 @@
 
 .tabulator .tabulator-row:nth-child(5n) { border-bottom-color: var(--border); }
 
-.tabulator .tabulator-row:hover { background: #FBFCFF; }
+.tabulator .tabulator-row:hover { background: #FBFCFF; cursor: pointer; }
 .tabulator .tabulator-row:hover .actions-btn { opacity: 1; }
+/* Undo the cursor on non-clickable cells */
+.tabulator .tabulator-row:hover .today-check,
+.tabulator .tabulator-row:hover .actions-btn { cursor: default; }
 .tabulator .tabulator-row:hover .subj {
   text-decoration: underline;
   text-decoration-color: var(--accent);
@@ -216,6 +219,13 @@
   border-radius: 3px;
   font-size: 10px;
   font-family: "JetBrains Mono", Menlo, monospace;
+}
+.ref-pill-link {
+  text-decoration: none;
+}
+.ref-pill-link:hover .ref-pill {
+  background: var(--accent);
+  color: #fff;
 }
 
 .due.red { color: var(--red); font-weight: 500; }

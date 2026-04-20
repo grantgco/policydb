@@ -85,6 +85,24 @@
       }, 400);
     }
 
+    window.openTaskSlideover = async function (id) {
+      const panel = document.getElementById("fu-edit-content");
+      if (!panel) return;
+      try {
+        const r = await fetch(`/activities/${id}/edit-slideover`);
+        if (!r.ok) {
+          console.warn(`Failed to load task detail: ${r.status}`);
+          return;
+        }
+        panel.innerHTML = await r.text();
+        if (typeof window.openFollowupEdit === "function") {
+          window.openFollowupEdit();
+        }
+      } catch (err) {
+        console.warn("openTaskSlideover failed", err);
+      }
+    };
+
     function showUndoToast(id, subject) {
       const toast = document.createElement("div");
       toast.className = "undo-toast";
