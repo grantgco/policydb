@@ -19,3 +19,6 @@ Package.resolved.lock
 
 # Xcode archives
 *.xcarchive
+
+# Code-coverage raw profile data — regenerated on every test run
+*.profraw
