@@ -48,3 +48,123 @@
 </div>
 
 {% include "action_center/_add_task_modal.html" %}
+
+<link rel="stylesheet" href="https://unpkg.com/tabulator-tables@6.3/dist/css/tabulator.min.css">
+<link rel="stylesheet" href="/static/css/today.css">
+<script src="https://unpkg.com/tabulator-tables@6.3/dist/js/tabulator.min.js"></script>
+<script src="/static/js/tabulator_today.js"></script>
+<script>
+  (function () {
+    const el = document.getElementById("today-grid");
+    if (!el || !window.buildTodayTable) return;
+    const rows = JSON.parse(el.dataset.rows || "[]");
+    const nudgeDays = Number(el.dataset.nudgeDays) || 10;
+    const table = window.buildTodayTable({
+      selector: "#today-grid",
+      rows,
+      nudgeDays,
+      onCompleted: (row) => { completeTask(row.id, row.subject); },
+    });
+
+    async function completeTask(id, subject) {
+      const tr = document.querySelector(`.tabulator-row[data-index="${id}"]`);
+      if (tr) tr.classList.add("row-completing");
+      setTimeout(async () => {
+        if (tr) tr.classList.add("row-removing");
+        await fetch(`/tasks/${id}/complete`, { method: "POST" });
+        setTimeout(() => table.deleteRow(id), 220);
+        showUndoToast(id, subject);
+      }, 400);
+    }
+
+    function showUndoToast(id, subject) {
+      const toast = document.createElement("div");
+      toast.className = "undo-toast";
+      toast.innerHTML = `
+        <span>Task completed — ${subject}</span>
+        <button class="undo-btn">Undo</button>`;
+      document.body.appendChild(toast);
+      const undoBtn = toast.querySelector(".undo-btn");
+      const dismiss = setTimeout(() => toast.remove(), 5000);
+      undoBtn.addEventListener("click", async () => {
+        clearTimeout(dismiss);
+        await fetch(`/tasks/${id}/undo-complete`, { method: "POST" });
+        table.addRow({ id, subject }, true);
+        toast.remove();
+      });
+    }
+
+    document.querySelectorAll(".filter-pill").forEach((pill) => {
+      pill.addEventListener("click", () => {
+        pill.classList.toggle("active");
+        applyFilters(table);
+        saveFilterState();
+      });
+    });
+
+    function applyFilters(table) {
+      const active = [...document.querySelectorAll(".filter-pill.active")]
+        .map((p) => p.dataset.filter);
+      if (active.length === 0 || active.includes("all")) {
+        table.clearFilter(true);
+        return;
+      }
+      table.setFilter((data) => {
+        if (active.includes("overdue") && data.priority === 3) return true;
+        if (active.includes("today") && data.priority === 2) return true;
+        if (active.includes("tomorrow") && data.priority === 1) return true;
+        if (active.includes("this-week") && data.priority >= 0) return true;
+        if (active.includes("waiting") && data.is_waiting === 1) return true;
+        if (active.includes("standalone") && data.client_id == null) return true;
+        return false;
+      });
+    }
+
+    function saveFilterState() {
+      const active = [...document.querySelectorAll(".filter-pill.active")]
+        .map((p) => p.dataset.filter);
+      sessionStorage.setItem("today-filter-pills", JSON.stringify(active));
+    }
+
+    try {
+      const saved = JSON.parse(sessionStorage.getItem("today-filter-pills") || "null");
+      if (Array.isArray(saved)) {
+        document.querySelectorAll(".filter-pill").forEach((p) => {
+          p.classList.toggle("active", saved.includes(p.dataset.filter));
+        });
+        applyFilters(table);
+      }
+    } catch (e) { /* ignore */ }
+  })();
+</script>
+<style>
+  .undo-toast {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    background: var(--brand);
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    box-shadow: 0 4px 12px rgba(0,15,71,0.2);
+    animation: undo-slide-in 160ms ease-out;
+  }
+  .undo-toast .undo-btn {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.4);
+    color: #fff;
+    border-radius: 4px;
+    padding: 3px 10px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .undo-toast .undo-btn:hover { background: rgba(255,255,255,0.15); }
+  @keyframes undo-slide-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .undo-toast { animation: none; }
+  }
+</style>
