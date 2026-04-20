@@ -1531,11 +1531,13 @@ def program_renew_log_save(
     p = _build_program_row_context(conn, program_uid)
     from policydb.queries import attach_renewal_issues
     attach_renewal_issues(conn, [p])
-    return templates.TemplateResponse("policies/_program_renew_row.html", {
+    resp = templates.TemplateResponse("policies/_program_renew_row.html", {
         "request": request,
         "p": p,
         "renewal_statuses": _renewal_statuses(),
     })
+    resp.headers["HX-Trigger"] = '{"activityLogged": "Activity logged"}'
+    return resp
 
 
 @router.get("/programs/{program_uid}/renew/row", response_class=HTMLResponse)
