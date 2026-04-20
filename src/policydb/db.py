@@ -8,13 +8,15 @@ import re
 import sqlite3
 from pathlib import Path
 
+from policydb import paths as _paths
+
 logger = logging.getLogger("policydb.db")
 
 
-DB_DIR = Path.home() / ".policydb"
-DB_PATH = DB_DIR / "policydb.sqlite"
-EXPORTS_DIR = DB_DIR / "exports"
-CONFIG_PATH = DB_DIR / "config.yaml"
+DB_DIR = _paths.DATA_DIR
+DB_PATH = _paths.DATA_DIR / "policydb.sqlite"
+EXPORTS_DIR = _paths.DATA_DIR / "exports"
+CONFIG_PATH = _paths.DATA_DIR / "config.yaml"
 
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
@@ -367,7 +369,7 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
     # Back up the database once before running any pending migrations.
     # This gives a clean restore point regardless of which migration fails.
 
-    _KNOWN_MIGRATIONS = set(range(1, 161))  # update upper bound when adding new migrations
+    _KNOWN_MIGRATIONS = set(range(1, 164))  # update upper bound when adding new migrations
 
     if _KNOWN_MIGRATIONS - applied:
         _backup_db(conn, db_path)
@@ -2166,6 +2168,17 @@ def _init_db_inner(conn: sqlite3.Connection, db_path: Path) -> None:
         )
         conn.commit()
         logger.info("Migration 162: repaired %d misclassified excess policies", repaired)
+
+    if 163 not in applied:
+        conn.executescript(
+            (_MIGRATIONS_DIR / "163_allow_standalone_tasks.sql").read_text()
+        )
+        conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+            (163, "Allow NULL activity_log.client_id (standalone tasks for Today list)"),
+        )
+        conn.commit()
+        logger.info("Migration 163: activity_log.client_id is now NULL-allowed (standalone tasks)")
 
     # Data hygiene: fix 'None' string corruption in text fields (runs every startup, fast no-op if clean)
     conn.execute("UPDATE clients SET cn_number = NULL WHERE cn_number = 'None'")

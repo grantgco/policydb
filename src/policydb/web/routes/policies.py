@@ -666,11 +666,13 @@ def policy_row_log_post(
     if not policy:
         return HTMLResponse("", status_code=404)
 
-    return templates.TemplateResponse("policies/_policy_row.html", {
+    resp = templates.TemplateResponse("policies/_policy_row.html", {
         "request": request,
         "p": dict(policy),
         "renewal_statuses": _renewal_statuses(),
     })
+    resp.headers["HX-Trigger"] = '{"activityLogged": "Activity logged"}'
+    return resp
 
 
 @router.get("/{policy_uid}/dash/row", response_class=HTMLResponse)
@@ -739,11 +741,13 @@ def policy_dash_log_post(
     if not policy:
         return HTMLResponse("", status_code=404)
 
-    return templates.TemplateResponse("policies/_policy_dash_row.html", {
+    resp = templates.TemplateResponse("policies/_policy_dash_row.html", {
         "request": request,
         "p": dict(policy),
         "renewal_statuses": _renewal_statuses(),
     })
+    resp.headers["HX-Trigger"] = '{"activityLogged": "Activity logged"}'
+    return resp
 
 
 def _renew_mailto_subject(conn, policy_uid: str) -> str:
@@ -762,9 +766,10 @@ def policy_renew_row(request: Request, policy_uid: str, conn=Depends(get_db)):
         return HTMLResponse("", status_code=404)
     p = dict(policy)
     rows_progress = _attach_milestone_progress(conn, [p])
+    rows_ready = _attach_readiness_score(conn, rows_progress)
     return templates.TemplateResponse("policies/_policy_renew_row.html", {
         "request": request,
-        "p": rows_progress[0],
+        "p": rows_ready[0],
         "mailto_subject": _renew_mailto_subject(conn, uid),
     })
 
@@ -824,11 +829,14 @@ def policy_renew_log_post(
 
     p = dict(policy)
     rows_progress = _attach_milestone_progress(conn, [p])
-    return templates.TemplateResponse("policies/_policy_renew_row.html", {
+    rows_ready = _attach_readiness_score(conn, rows_progress)
+    resp = templates.TemplateResponse("policies/_policy_renew_row.html", {
         "request": request,
-        "p": rows_progress[0],
+        "p": rows_ready[0],
         "mailto_subject": _renew_mailto_subject(conn, uid),
     })
+    resp.headers["HX-Trigger"] = '{"activityLogged": "Activity logged"}'
+    return resp
 
 
 
@@ -3439,13 +3447,21 @@ def policy_timeline_set_profile(
     timeline = get_policy_timeline(conn, uid)
     suggestions = suggest_profile(conn, policy_uid=uid) if not timeline else {}
 
-    return templates.TemplateResponse("policies/_timeline.html", {
+    resp = templates.TemplateResponse("policies/_timeline.html", {
         "request": request,
         "policy": policy_dict,
         "timeline": timeline,
         "milestone_profiles": cfg.get("milestone_profiles", []),
         "suggested_profile": suggestions.get(uid, ""),
     })
+    if new_profile:
+        toast_msg = f"Profile '{new_profile}' applied"
+        if not timeline:
+            toast_msg += " — no milestones within horizon"
+    else:
+        toast_msg = "Profile cleared"
+    resp.headers["HX-Trigger"] = json.dumps({"activityLogged": toast_msg})
+    return resp
 
 
 @router.get("/{policy_uid}/edit", response_class=HTMLResponse)

@@ -878,6 +878,7 @@ def _renewal_export_row(row: dict) -> dict:
             "Type": "Program",
             "UID": row.get("program_uid") or "",
             "Client": row.get("client_name") or "",
+            "Location / Project": row.get("project_name") or "",
             "Line / Program": row.get("program_name") or "",
             "Policies": row.get("policy_count") or 0,
             "Carrier(s)": row.get("carriers_list") or "",
@@ -893,6 +894,7 @@ def _renewal_export_row(row: dict) -> dict:
         "Type": "Policy",
         "UID": row.get("policy_uid") or "",
         "Client": row.get("client_name") or "",
+        "Location / Project": row.get("project_name") or "",
         "Line / Program": row.get("policy_type") or "",
         "Policies": 1,
         "Carrier(s)": row.get("carrier") or "",
@@ -1683,16 +1685,19 @@ _CLIENT_REQ_COL_WIDTHS = {
 def export_client_requests_xlsx(conn, client_id: int) -> bytes:
     """Export all non-complete request items for a client as a multi-sheet XLSX.
 
-    Tabs are grouped by program or location, not by RFI bundle — so when a
-    single program or project has items across multiple open requests the
+    Tabs are grouped by location or program, not by RFI bundle — so when a
+    single project or program has items across multiple open requests the
     client sees them together. Each row carries an "RFI" column so the
     source bundle is still traceable, and the "Attached File(s)" column
     lets the workbook double as a manifest for the companion ZIP.
 
     Grouping precedence per item:
-      1. If the item's policy is tied to a program → that program's tab
-      2. Else if the item (or its policy) has a project/location → that tab
+      1. If the item (or its policy) has a project/location → that tab
+      2. Else if the policy is tied to a program → that program's tab
       3. Else → "Unassigned" tab
+
+    Received items render in a muted grey font so the client can see at a
+    glance which questions no longer need to be addressed.
     """
     from collections import defaultdict
 
@@ -1720,18 +1725,18 @@ def export_client_requests_xlsx(conn, client_id: int) -> bytes:
 
     att_by_item = _rfi_item_attachment_filenames(conn, [dict(i)["id"] for i in items])
 
-    # kind ordering: program first, then location, then unassigned last
-    _KIND_ORDER = {"program": 0, "location": 1, "unassigned": 2}
+    # kind ordering: location first, then program, then unassigned last
+    _KIND_ORDER = {"location": 0, "program": 1, "unassigned": 2}
     groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
 
     for item in items:
         i = dict(item)
         program = (i.get("program_name") or "").strip()
         location = (i.get("location") or "").strip()
-        if program:
-            key = ("program", program)
-        elif location:
+        if location:
             key = ("location", location)
+        elif program:
+            key = ("program", program)
         else:
             key = ("unassigned", "Unassigned")
 
@@ -1752,6 +1757,8 @@ def export_client_requests_xlsx(conn, client_id: int) -> bytes:
             "Notes / Response": i.get("notes") or "",
         })
 
+    _MUTED_FONT = Font(name="Calibri", size=11, color="8A8A8A", italic=True)
+
     used_names: set[str] = set()
     for key in sorted(groups.keys(), key=lambda k: (_KIND_ORDER[k[0]], k[1].lower())):
         _, name = key
@@ -1763,7 +1770,15 @@ def export_client_requests_xlsx(conn, client_id: int) -> bytes:
             sheet_name = f"{base[:31 - len(suffix)]}{suffix}"
             n += 1
         used_names.add(sheet_name)
-        _write_sheet(wb, sheet_name, groups[key], col_widths=_CLIENT_REQ_COL_WIDTHS)
+        sheet_rows = groups[key]
+        _write_sheet(wb, sheet_name, sheet_rows, col_widths=_CLIENT_REQ_COL_WIDTHS)
+
+        # Mute "Received" rows — the client shouldn't have to address them.
+        ws = wb[sheet_name]
+        for row_idx, row in enumerate(sheet_rows, start=2):
+            if row.get("Status") == "Received":
+                for col_idx in range(1, ws.max_column + 1):
+                    ws.cell(row=row_idx, column=col_idx).font = _MUTED_FONT
 
     return _wb_to_bytes(wb)
 

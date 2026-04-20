@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date, datetime, timedelta
 
@@ -19,6 +20,7 @@ from policydb.activity_review import (
     scan_for_unlogged_sessions,
 )
 from policydb.queries import (
+    create_followup_activity,
     get_activities,
     get_all_followups,
     get_dashboard_hours_this_month,
@@ -962,6 +964,22 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
             "activity_types": cfg.get("activity_types", []),
             "all_contact_names": all_contact_names_fq,
         }
+    elif initial_tab == "today":
+        today_rows = conn.execute(
+            "SELECT * FROM v_today_tasks ORDER BY priority DESC, follow_up_date ASC, id ASC"
+        ).fetchall()
+        all_clients = conn.execute(
+            "SELECT id, name FROM clients WHERE archived = 0 ORDER BY name"
+        ).fetchall()
+        nudge_days = cfg.get("focus_nudge_alert_days", 10)
+        tab_ctx = {
+            "today_rows": [dict(r) for r in today_rows],
+            "all_clients": [dict(c) for c in all_clients],
+            "nudge_days": nudge_days,
+            "today_label": date.today().strftime("%A · %B %-d"),
+            "today_iso": date.today().isoformat(),
+            "ac_tab": "today",
+        }
     elif initial_tab == "inbox":
         tab_ctx = _inbox_ctx(conn)
     elif initial_tab == "activities":
@@ -1583,3 +1601,167 @@ def suggested_contact_dismiss(sc_id: int, request: Request, block: int = Form(0)
     )
     conn.commit()
     return suggested_contacts_list(request, conn)
+
+
+# ── Task CRUD (Today tab) ────────────────────────────────────────────────────
+
+
+@router.post("/tasks/create", response_class=HTMLResponse)
+def task_create(
+    request: Request,
+    subject: str = Form(...),
+    client_id: int = Form(0),
+    policy_id: int = Form(0),
+    follow_up_date: str = Form(""),
+    contact_person: str = Form(""),
+    conn=Depends(get_db),
+):
+    """Create a new task (follow-up). Subject required; everything else optional.
+
+    Standalone tasks: omit client_id or pass 0 — stored as NULL.
+    Uses the canonical `create_followup_activity` helper so supersession,
+    auto-linking, and `default_account_exec` config are all honored.
+    """
+    subject = (subject or "").strip()
+    if not subject:
+        return HTMLResponse("Subject is required", status_code=422)
+    if len(subject) > 200:
+        return HTMLResponse("Subject must be 200 chars or fewer", status_code=422)
+
+    fu_date = follow_up_date or date.today().isoformat()
+    new_id = create_followup_activity(
+        conn,
+        client_id=client_id or None,
+        policy_id=policy_id or None,
+        issue_id=None,
+        subject=subject,
+        activity_type="Task",
+        follow_up_date=fu_date,
+        contact_person=contact_person or None,
+    )
+    conn.commit()
+    logger.info("Task created: id=%s subject=%r", new_id, subject)
+
+    resp = Response(status_code=201)
+    resp.headers["HX-Trigger"] = json.dumps({"taskCreated": {"id": new_id, "subject": subject}})
+    return resp
+
+
+@router.post("/tasks/{task_id}/complete", response_class=Response)
+def task_complete(task_id: int, conn=Depends(get_db)):
+    """Mark a task complete. Returns 204 + HX-Trigger so the client can render the undo toast."""
+    row = conn.execute(
+        "SELECT subject FROM activity_log WHERE id = ? AND item_kind IN ('followup','issue')",
+        (task_id,),
+    ).fetchone()
+    if not row:
+        return Response(status_code=404)
+    cursor = conn.execute(
+        "UPDATE activity_log SET follow_up_done = 1 WHERE id = ? AND item_kind IN ('followup','issue')",
+        (task_id,),
+    )
+    conn.commit()
+    if cursor.rowcount == 0:
+        return Response(status_code=404)
+    logger.info("Task %s completed: %r", task_id, row["subject"])
+
+    resp = Response(status_code=204)
+    resp.headers["HX-Trigger"] = json.dumps({
+        "taskCompleted": {"id": task_id, "subject": row["subject"]}
+    })
+    return resp
+
+
+@router.post("/tasks/{task_id}/undo-complete", response_class=Response)
+def task_undo_complete(task_id: int, conn=Depends(get_db)):
+    """Re-open a completed task (fired by the 5s undo toast)."""
+    cursor = conn.execute(
+        "UPDATE activity_log SET follow_up_done = 0 WHERE id = ? AND item_kind IN ('followup','issue')",
+        (task_id,),
+    )
+    conn.commit()
+    if cursor.rowcount == 0:
+        return Response("Task not found", status_code=404)
+    logger.info("Task %s re-opened via undo", task_id)
+    return Response(status_code=204)
+
+
+@router.post("/tasks/{task_id}/snooze", response_class=Response)
+def task_snooze(
+    task_id: int,
+    option: str = Form(...),
+    date_str: str = Form("", alias="date"),
+    conn=Depends(get_db),
+):
+    """Snooze a task. option ∈ {tomorrow, this_week, next_week, custom}.
+
+    - tomorrow: today + 1 day
+    - this_week: upcoming Monday (today if today IS Monday; else next Monday)
+    - next_week: Monday of the following week
+    - custom: the date passed in date_str (ISO format)
+    """
+    today = date.today()
+    if option == "tomorrow":
+        new_date = today + timedelta(days=1)
+    elif option == "this_week":
+        # Upcoming Monday — today if today is already Monday, else next Monday
+        days_ahead = (0 - today.weekday()) % 7
+        new_date = today + timedelta(days=days_ahead)
+    elif option == "next_week":
+        # Monday of the following week = upcoming Monday + 7 days
+        this_monday_offset = (0 - today.weekday()) % 7  # 0..6
+        new_date = today + timedelta(days=this_monday_offset + 7)
+    elif option == "custom":
+        try:
+            new_date = date.fromisoformat(date_str)
+        except ValueError:
+            return Response("Invalid date", status_code=422)
+    else:
+        return Response(f"Unknown snooze option: {option}", status_code=422)
+
+    cursor = conn.execute(
+        "UPDATE activity_log SET follow_up_date = ? WHERE id = ? AND item_kind IN ('followup','issue')",
+        (new_date.isoformat(), task_id),
+    )
+    conn.commit()
+    if cursor.rowcount == 0:
+        return Response("Task not found", status_code=404)
+    logger.info("Task %s snoozed to %s via %s", task_id, new_date, option)
+    return Response(status_code=200)
+
+
+@router.get("/action-center/today/suggestions", response_class=HTMLResponse)
+def today_suggestions_stub(request: Request, conn=Depends(get_db)):
+    """Phase 3 will populate this with build_focus_queue(..., suggestions_only=True).
+    For Phase 2, return an empty rail so the hx-get doesn't 404.
+    """
+    html = (
+        '<div class="today-suggestions-empty" '
+        'style="color: var(--muted); font-size: 11px; text-align: center; padding: 20px 0;">'
+        'Smart suggestions appear here in Phase 3.'
+        '</div>'
+    )
+    return HTMLResponse(html)
+
+
+@router.get("/action-center/today/fragment", response_class=HTMLResponse)
+def today_fragment(request: Request, conn=Depends(get_db)):
+    """Return just the Today tab fragment (no base.html shell) for htmx.ajax refresh."""
+    today_rows = conn.execute(
+        "SELECT * FROM v_today_tasks ORDER BY priority DESC, follow_up_date ASC, id ASC"
+    ).fetchall()
+    all_clients = conn.execute(
+        "SELECT id, name FROM clients WHERE archived = 0 ORDER BY name"
+    ).fetchall()
+    nudge_days = cfg.get("focus_nudge_alert_days", 10)
+    return templates.TemplateResponse(
+        "action_center/_today.html",
+        {
+            "request": request,
+            "today_rows": [dict(r) for r in today_rows],
+            "all_clients": [dict(c) for c in all_clients],
+            "nudge_days": nudge_days,
+            "today_label": date.today().strftime("%A · %B %-d"),
+            "today_iso": date.today().isoformat(),
+        },
+    )
