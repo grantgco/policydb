@@ -1,0 +1,348 @@
+{# Today tab — Tabulator grid + filter pills + Smart Suggestions rail.
+
+   Data flowed in via action_center_page:
+     today_rows  — list of dict, mirrors v_today_tasks
+     all_clients — list of dict(id, name) for Add Task combobox
+     nudge_days  — int, cfg.focus_nudge_alert_days
+     today_label — formatted date heading (computed server-side)
+#}
+
+<div class="today-tab" data-tab="today">
+  <div class="today-editorial">
+    <h2 class="today-date">{{ today_label }}</h2>
+    <hr class="today-rule" />
+    <div class="today-stats">
+      {{ today_rows | length }} open · {{ today_rows | selectattr("priority", "equalto", 3) | list | length }} overdue
+    </div>
+  </div>
+
+  <div class="today-toolbar" role="toolbar">
+    <div class="today-filters">
+      <button class="filter-pill all-open" data-filter="all">All open</button>
+      <button class="filter-pill active" data-filter="overdue">Overdue</button>
+      <button class="filter-pill active" data-filter="today">Today</button>
+      <button class="filter-pill active" data-filter="tomorrow">Tomorrow</button>
+      <button class="filter-pill" data-filter="this-week">This week</button>
+      <button class="filter-pill" data-filter="waiting">Waiting</button>
+      <button class="filter-pill" data-filter="standalone">Standalone</button>
+    </div>
+    <div class="today-actions">
+      <a href="/followups/plan" class="today-planweek-link">Plan Week →</a>
+      <button class="btn btn-primary" id="today-add-task-btn">
+        + Add task <span class="kbd-hint">⌘N</span>
+      </button>
+    </div>
+  </div>
+
+  {% if today_rows | length == 0 %}
+    <div class="today-empty">
+      <h3>Inbox Zero for today.</h3>
+      <p>Take the afternoon off — or add a task.</p>
+      <button class="btn btn-primary" id="today-add-task-btn-empty">+ Add task</button>
+    </div>
+  {% else %}
+    <div id="today-grid" class="today-grid"
+         data-rows='{{ today_rows | tojson }}'
+         data-nudge-days="{{ nudge_days }}"></div>
+  {% endif %}
+
+  <aside id="today-suggestions"
+         class="today-suggestions"
+         hx-get="/action-center/today/suggestions"
+         hx-trigger="load delay:200ms, every 5m"
+         hx-swap="innerHTML">
+    <div class="today-suggestions-loading">Loading suggestions…</div>
+  </aside>
+</div>
+
+{% include "action_center/_add_task_modal.html" %}
+
+<link rel="stylesheet" href="https://unpkg.com/tabulator-tables@6.3/dist/css/tabulator.min.css">
+<link rel="stylesheet" href="/static/css/today.css">
+<script src="https://unpkg.com/tabulator-tables@6.3/dist/js/tabulator.min.js"></script>
+<script src="/static/js/tabulator_today.js"></script>
+<script>
+  (function () {
+    const el = document.getElementById("today-grid");
+    if (!el || !window.buildTodayTable) return;
+    const rows = JSON.parse(el.dataset.rows || "[]");
+    const nudgeDays = Number(el.dataset.nudgeDays) || 10;
+    const table = window.buildTodayTable({
+      selector: "#today-grid",
+      rows,
+      nudgeDays,
+      onCompleted: (row) => { completeTask(row.id, row.subject); },
+    });
+
+    async function completeTask(id, subject) {
+      const tr = document.querySelector(`.tabulator-row[data-index="${id}"]`);
+      if (tr) tr.classList.add("row-completing");
+      setTimeout(async () => {
+        if (tr) tr.classList.add("row-removing");
+        await fetch(`/tasks/${id}/complete`, { method: "POST" });
+        setTimeout(() => table.deleteRow(id), 220);
+        showUndoToast(id, subject);
+      }, 400);
+    }
+
+    function showUndoToast(id, subject) {
+      const toast = document.createElement("div");
+      toast.className = "undo-toast";
+      const span = document.createElement("span");
+      span.textContent = "Task completed — " + subject;
+      const btn = document.createElement("button");
+      btn.className = "undo-btn";
+      btn.textContent = "Undo";
+      toast.appendChild(span);
+      toast.appendChild(btn);
+      document.body.appendChild(toast);
+      const undoBtn = btn;
+      const dismiss = setTimeout(() => toast.remove(), 5000);
+      undoBtn.addEventListener("click", async () => {
+        clearTimeout(dismiss);
+        await fetch(`/tasks/${id}/undo-complete`, { method: "POST" });
+        table.addRow({ id, subject }, true);
+        toast.remove();
+      });
+    }
+
+    document.querySelectorAll(".filter-pill").forEach((pill) => {
+      pill.addEventListener("click", () => {
+        pill.classList.toggle("active");
+        applyFilters(table);
+        saveFilterState();
+      });
+    });
+
+    function applyFilters(table) {
+      const active = [...document.querySelectorAll(".filter-pill.active")]
+        .map((p) => p.dataset.filter);
+      if (active.length === 0 || active.includes("all")) {
+        table.clearFilter(true);
+        return;
+      }
+      table.setFilter((data) => {
+        if (active.includes("overdue") && data.priority === 3) return true;
+        if (active.includes("today") && data.priority === 2) return true;
+        if (active.includes("tomorrow") && data.priority === 1) return true;
+        if (active.includes("this-week") && data.follow_up_date) {
+          // "This week" = due on or before 7 days from today (inclusive of overdue)
+          const d = new Date(data.follow_up_date + "T00:00:00");
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          const diffDays = Math.floor((d - today) / 86400000);
+          if (diffDays <= 7) return true;
+        }
+        if (active.includes("waiting") && data.is_waiting === 1) return true;
+        if (active.includes("standalone") && data.client_id == null) return true;
+        return false;
+      });
+    }
+
+    function saveFilterState() {
+      const active = [...document.querySelectorAll(".filter-pill.active")]
+        .map((p) => p.dataset.filter);
+      sessionStorage.setItem("today-filter-pills", JSON.stringify(active));
+    }
+
+    try {
+      const saved = JSON.parse(sessionStorage.getItem("today-filter-pills") || "null");
+      if (Array.isArray(saved)) {
+        document.querySelectorAll(".filter-pill").forEach((p) => {
+          p.classList.toggle("active", saved.includes(p.dataset.filter));
+        });
+        applyFilters(table);
+      }
+    } catch (e) { /* ignore */ }
+
+    // Snooze menu — invoked by `•••` per-row button
+    document.addEventListener("click", (e) => {
+      const btn = e.target.closest(".actions-btn");
+      if (!btn) { closeSnoozeMenu(); return; }
+      const tr = btn.closest(".tabulator-row");
+      if (!tr) return;
+      const rowId = tr.getAttribute("data-index") || tr.getAttribute("data-row-id");
+      if (!rowId) return;
+      const rect = btn.getBoundingClientRect();
+      openSnoozeMenu(Number(rowId), rect.right, rect.top);
+    });
+
+    function openSnoozeMenu(taskId, x, y) {
+      closeSnoozeMenu();
+      const menu = document.createElement("div");
+      menu.className = "snooze-menu";
+      menu.id = "snooze-menu";
+      menu.style.top = `${y + 4}px`;
+      menu.style.left = `${x - 160}px`;
+      const options = [
+        { opt: "tomorrow", label: "Snooze tomorrow" },
+        { opt: "this_week", label: "Snooze this week (Mon)" },
+        { opt: "next_week", label: "Snooze next week" },
+        { opt: "custom", label: "Custom date…" },
+      ];
+      options.forEach(({ opt, label }) => {
+        const b = document.createElement("button");
+        b.setAttribute("data-opt", opt);
+        b.textContent = label;
+        menu.appendChild(b);
+      });
+      document.body.appendChild(menu);
+      menu.querySelectorAll("button").forEach((b) => {
+        b.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          const opt = b.dataset.opt;
+          if (opt === "custom") {
+            // Swap menu content for an inline date picker
+            showCustomDateInput(taskId, menu);
+            return;
+          }
+          const body = new URLSearchParams({ option: opt });
+          const r = await fetch(`/tasks/${taskId}/snooze`, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body,
+          });
+          closeSnoozeMenu();
+          if (r.ok && window.htmx) {
+            htmx.ajax("GET", "/action-center/today/fragment", { target: ".today-tab", swap: "outerHTML" });
+          } else if (r.ok) {
+            location.reload();
+          }
+        });
+      });
+    }
+
+    function showCustomDateInput(taskId, menu) {
+      // Replace menu content with date input + apply/cancel
+      while (menu.firstChild) menu.removeChild(menu.firstChild);
+      menu.classList.add("snooze-menu-custom");
+      const label = document.createElement("label");
+      label.className = "snooze-menu-label";
+      label.textContent = "Snooze until";
+      const input = document.createElement("input");
+      input.type = "date";
+      input.className = "snooze-menu-date";
+      // Default to tomorrow
+      const t = new Date();
+      t.setDate(t.getDate() + 1);
+      input.value = t.toISOString().slice(0, 10);
+      const actions = document.createElement("div");
+      actions.className = "snooze-menu-actions";
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "snooze-menu-cancel";
+      cancel.textContent = "Cancel";
+      const apply = document.createElement("button");
+      apply.type = "button";
+      apply.className = "snooze-menu-apply";
+      apply.textContent = "Apply";
+      actions.appendChild(cancel);
+      actions.appendChild(apply);
+      menu.appendChild(label);
+      menu.appendChild(input);
+      menu.appendChild(actions);
+      // Prevent outer document click from closing while interacting with the picker
+      menu.addEventListener("click", (e) => e.stopPropagation());
+      input.addEventListener("click", (e) => e.stopPropagation());
+      cancel.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeSnoozeMenu();
+      });
+      apply.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const d = input.value;
+        if (!d) {
+          input.classList.add("error");
+          return;
+        }
+        const r = await fetch(`/tasks/${taskId}/snooze`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ option: "custom", date: d }),
+        });
+        closeSnoozeMenu();
+        if (r.ok && window.htmx) {
+          htmx.ajax("GET", "/action-center/today/fragment", { target: ".today-tab", swap: "outerHTML" });
+        } else if (r.ok) {
+          location.reload();
+        }
+      });
+      input.focus();
+    }
+
+    function closeSnoozeMenu() {
+      const existing = document.getElementById("snooze-menu");
+      if (existing) existing.remove();
+    }
+
+    // Show "Inbox Zero" inline when filters hide everything
+    function refreshEmptyState(t) {
+      const visible = t.getData("active").length;
+      let empty = document.getElementById("today-filter-empty");
+      const grid = document.getElementById("today-grid");
+      if (!grid) return;
+      if (visible === 0 && !empty) {
+        empty = document.createElement("div");
+        empty.id = "today-filter-empty";
+        empty.className = "today-empty";
+        const h = document.createElement("h3");
+        h.textContent = "Inbox Zero for today.";
+        const p = document.createElement("p");
+        p.textContent = "All caught up — try relaxing a filter to see more.";
+        empty.appendChild(h);
+        empty.appendChild(p);
+        grid.parentElement.appendChild(empty);
+      } else if (visible > 0 && empty) {
+        empty.remove();
+      }
+    }
+    table.on("dataFiltered", () => refreshEmptyState(table));
+  })();
+
+  // Grid-independent wiring — works in both populated and empty states.
+  (function () {
+    const open = () => window.openAddTaskModal && window.openAddTaskModal();
+    const mainBtn = document.getElementById("today-add-task-btn");
+    if (mainBtn) mainBtn.addEventListener("click", open);
+    const emptyBtn = document.getElementById("today-add-task-btn-empty");
+    if (emptyBtn) emptyBtn.addEventListener("click", open);
+    document.addEventListener("keydown", (e) => {
+      const isMod = (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey;
+      if (!isMod) return;
+      if (e.key.toLowerCase() !== "n") return;
+      if (!document.querySelector(".today-tab")) return;
+      e.preventDefault();
+      open();
+    });
+  })();
+</script>
+<style>
+  .undo-toast {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    background: var(--brand);
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    box-shadow: 0 4px 12px rgba(0,15,71,0.2);
+    animation: undo-slide-in 160ms ease-out;
+  }
+  .undo-toast .undo-btn {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.4);
+    color: #fff;
+    border-radius: 4px;
+    padding: 3px 10px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .undo-toast .undo-btn:hover { background: rgba(255,255,255,0.15); }
+  @keyframes undo-slide-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .undo-toast { animation: none; }
+  }
+</style>

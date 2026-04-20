@@ -1383,7 +1383,7 @@ def supersede_followups(conn, policy_id: int, new_date: str) -> None:
 def create_followup_activity(
     conn,
     *,
-    client_id: int,
+    client_id: int | None = None,
     policy_id: int | None,
     issue_id: int | None,
     subject: str,
