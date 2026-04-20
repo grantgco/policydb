@@ -5,6 +5,7 @@
       hx-post="/programs/{{ p.program_uid }}/renew/log"
       hx-target="#pgm-row-{{ p.program_uid }}"
       hx-swap="outerHTML"
+      hx-disabled-elt="find button[type='submit']"
       class="space-y-3">
 
       <!-- Row 1: Type, Subject, Duration, Follow-Up -->

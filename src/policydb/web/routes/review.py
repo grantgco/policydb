@@ -631,10 +631,12 @@ def policy_row_log_save(
     if not r:
         return HTMLResponse("")
     suggestions = suggest_profile(conn)
-    return templates.TemplateResponse(
+    resp = templates.TemplateResponse(
         "review/_policy_row.html",
         _policy_row_context(request, r, suggestions=suggestions),
     )
+    resp.headers["HX-Trigger"] = '{"activityLogged": "Activity logged"}'
+    return resp
 
 
 # ── Policy Review Slideover ──────────────────────────────────────────────────

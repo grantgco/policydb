@@ -5,6 +5,7 @@
       hx-post="/policies/{{ p.policy_uid }}/dash/log"
       hx-target="#dash-row-{{ p.policy_uid }}"
       hx-swap="outerHTML"
+      hx-disabled-elt="find button[type='submit']"
       class="space-y-3">
 
       <input type="hidden" name="client_id" value="{{ p.client_id }}">
