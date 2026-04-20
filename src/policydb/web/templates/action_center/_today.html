@@ -154,20 +154,6 @@
       }
     } catch (e) { /* ignore */ }
 
-    // Add Task button
-    const addBtn = document.getElementById("today-add-task-btn");
-    if (addBtn) addBtn.addEventListener("click", () => window.openAddTaskModal());
-
-    // Cmd/Ctrl+N — only when the Today tab is the active tab
-    document.addEventListener("keydown", (e) => {
-      const isMod = (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey;
-      if (!isMod) return;
-      if (e.key.toLowerCase() !== "n") return;
-      if (!document.querySelector(".today-tab")) return;  // not on Today tab
-      e.preventDefault();
-      window.openAddTaskModal();
-    });
-
     // Snooze menu — invoked by `•••` per-row button
     document.addEventListener("click", (e) => {
       const btn = e.target.closest(".actions-btn");
@@ -219,7 +205,7 @@
           });
           closeSnoozeMenu();
           if (window.htmx) {
-            htmx.ajax("GET", "/action-center?tab=today", { target: ".today-tab", swap: "outerHTML" });
+            htmx.ajax("GET", "/action-center/today/fragment", { target: ".today-tab", swap: "outerHTML" });
           } else {
             location.reload();
           }
@@ -256,10 +242,21 @@
     table.on("dataFiltered", () => refreshEmptyState(table));
   })();
 
-  // Wire empty-state button (only exists when today_rows is empty)
+  // Grid-independent wiring — works in both populated and empty states.
   (function () {
+    const open = () => window.openAddTaskModal && window.openAddTaskModal();
+    const mainBtn = document.getElementById("today-add-task-btn");
+    if (mainBtn) mainBtn.addEventListener("click", open);
     const emptyBtn = document.getElementById("today-add-task-btn-empty");
-    if (emptyBtn) emptyBtn.addEventListener("click", () => window.openAddTaskModal());
+    if (emptyBtn) emptyBtn.addEventListener("click", open);
+    document.addEventListener("keydown", (e) => {
+      const isMod = (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey;
+      if (!isMod) return;
+      if (e.key.toLowerCase() !== "n") return;
+      if (!document.querySelector(".today-tab")) return;
+      e.preventDefault();
+      open();
+    });
   })();
 </script>
 <style>

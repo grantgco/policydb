@@ -119,7 +119,7 @@
       try {
         JSON.parse(trigger); // validate payload exists
         if (window.htmx) {
-          htmx.ajax("GET", "/action-center?tab=today", { target: ".today-tab", swap: "outerHTML" });
+          htmx.ajax("GET", "/action-center/today/fragment", { target: ".today-tab", swap: "outerHTML" });
         } else {
           location.reload();
         }
