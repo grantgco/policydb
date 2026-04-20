@@ -3439,13 +3439,21 @@ def policy_timeline_set_profile(
     timeline = get_policy_timeline(conn, uid)
     suggestions = suggest_profile(conn, policy_uid=uid) if not timeline else {}
 
-    return templates.TemplateResponse("policies/_timeline.html", {
+    resp = templates.TemplateResponse("policies/_timeline.html", {
         "request": request,
         "policy": policy_dict,
         "timeline": timeline,
         "milestone_profiles": cfg.get("milestone_profiles", []),
         "suggested_profile": suggestions.get(uid, ""),
     })
+    if new_profile:
+        toast_msg = f"Profile '{new_profile}' applied"
+        if not timeline:
+            toast_msg += " — no milestones within horizon"
+    else:
+        toast_msg = "Profile cleared"
+    resp.headers["HX-Trigger"] = json.dumps({"activityLogged": toast_msg})
+    return resp
 
 
 @router.get("/{policy_uid}/edit", response_class=HTMLResponse)
