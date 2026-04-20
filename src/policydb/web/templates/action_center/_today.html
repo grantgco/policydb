@@ -145,6 +145,20 @@
         applyFilters(table);
       }
     } catch (e) { /* ignore */ }
+
+    // Add Task button
+    const addBtn = document.getElementById("today-add-task-btn");
+    if (addBtn) addBtn.addEventListener("click", () => window.openAddTaskModal());
+
+    // Cmd/Ctrl+N — only when the Today tab is the active tab
+    document.addEventListener("keydown", (e) => {
+      const isMod = (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey;
+      if (!isMod) return;
+      if (e.key.toLowerCase() !== "n") return;
+      if (!document.querySelector(".today-tab")) return;  // not on Today tab
+      e.preventDefault();
+      window.openAddTaskModal();
+    });
   })();
 </script>
 <style>

@@ -1,1 +1,132 @@
-<dialog id="add-task-modal" class="modal"><p>Add Task modal — implemented in Task 2.8</p></dialog>
+{# Add Task modal — opened by #today-add-task-btn or Cmd/Ctrl+N. Posts to /tasks/create. #}
+
+<dialog id="add-task-modal" class="add-task-modal">
+  <form method="post" action="/tasks/create" class="add-task-form"
+        onsubmit="return submitAddTask(event)">
+    <header class="modal-header">
+      <h3>Add task</h3>
+      <button type="button" class="modal-close" onclick="closeAddTaskModal()" aria-label="Close">×</button>
+    </header>
+
+    <label class="modal-field">
+      <span>Subject <span class="required">*</span></span>
+      <textarea name="subject" rows="2" required maxlength="200" autofocus
+                placeholder="What needs to be done?"></textarea>
+    </label>
+
+    <label class="modal-field">
+      <span>Client <span class="muted">(optional)</span></span>
+      <select name="client_id" id="add-task-client">
+        <option value="">— Standalone task —</option>
+        {% for c in all_clients %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="modal-field">
+      <span>Follow-up date</span>
+      <input type="date" name="follow_up_date" value="{{ today_iso }}" />
+    </label>
+
+    <label class="modal-field">
+      <span>Contact <span class="muted">(optional)</span></span>
+      <input type="text" name="contact_person" placeholder="Name" />
+    </label>
+
+    <footer class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="closeAddTaskModal()">Cancel</button>
+      <button type="submit" class="btn btn-primary">Create task</button>
+    </footer>
+  </form>
+</dialog>
+
+<style>
+  .add-task-modal {
+    width: 480px;
+    max-width: 92vw;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0;
+    background: var(--surface, #fff);
+    box-shadow: 0 8px 30px rgba(0,15,71,0.18);
+  }
+  .add-task-modal::backdrop { background: rgba(0,15,71,0.35); }
+  .add-task-form {
+    display: flex; flex-direction: column; gap: 12px; padding: 18px 22px 20px;
+  }
+  .modal-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin: -2px -4px 4px 0;
+  }
+  .modal-header h3 {
+    font-family: "DM Serif Display", serif;
+    color: var(--brand); font-size: 20px; margin: 0; font-weight: 400;
+  }
+  .modal-close {
+    background: transparent; border: 0; font-size: 20px; color: var(--muted);
+    cursor: pointer; line-height: 1;
+  }
+  .modal-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+  .modal-field > span { color: var(--body); font-weight: 500; }
+  .modal-field .required { color: var(--red); }
+  .modal-field .muted { color: var(--muted); font-weight: 400; }
+  .modal-field textarea,
+  .modal-field input,
+  .modal-field select {
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    font-family: "DM Sans", sans-serif;
+    font-size: 13px;
+    background: var(--bg, #F7F3EE);
+    color: var(--body);
+    resize: vertical;
+  }
+  .modal-field textarea:focus,
+  .modal-field input:focus,
+  .modal-field select:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+  .btn-ghost {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: 6px 14px; border-radius: 5px; cursor: pointer; font-size: 12px;
+  }
+</style>
+
+<script>
+  window.openAddTaskModal = function () {
+    const dlg = document.getElementById("add-task-modal");
+    if (dlg && !dlg.open) dlg.showModal();
+  };
+  window.closeAddTaskModal = function () {
+    const dlg = document.getElementById("add-task-modal");
+    if (dlg && dlg.open) dlg.close();
+  };
+  window.submitAddTask = async function (event) {
+    event.preventDefault();
+    const form = event.target;
+    const body = new FormData(form);
+    const resp = await fetch("/tasks/create", { method: "POST", body });
+    if (!resp.ok) {
+      alert("Couldn't create task: " + (await resp.text()));
+      return false;
+    }
+    const trigger = resp.headers.get("HX-Trigger");
+    if (trigger) {
+      try {
+        JSON.parse(trigger); // validate payload exists
+        if (window.htmx) {
+          htmx.ajax("GET", "/action-center?tab=today", { target: ".today-tab", swap: "outerHTML" });
+        } else {
+          location.reload();
+        }
+      } catch (e) { location.reload(); }
+    }
+    form.reset();
+    closeAddTaskModal();
+    return false;
+  };
+</script>

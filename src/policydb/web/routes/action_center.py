@@ -977,6 +977,7 @@ def action_center_page(request: Request, tab: str = "", conn=Depends(get_db)):
             "all_clients": [dict(c) for c in all_clients],
             "nudge_days": nudge_days,
             "today_label": date.today().strftime("%A · %B %-d"),
+            "today_iso": date.today().isoformat(),
             "ac_tab": "today",
         }
     elif initial_tab == "inbox":
