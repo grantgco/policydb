@@ -85,11 +85,14 @@
       }, 400);
     }
 
-    window.openTaskSlideover = async function (id) {
+    window.openTaskSlideover = async function (id, kind) {
       const panel = document.getElementById("fu-edit-content");
       if (!panel) return;
+      const url = kind === "issue"
+        ? `/issues/${id}/edit-slideover`
+        : `/activities/${id}/edit-slideover`;
       try {
-        const r = await fetch(`/activities/${id}/edit-slideover`);
+        const r = await fetch(url);
         if (!r.ok) {
           console.warn(`Failed to load task detail: ${r.status}`);
           return;
@@ -322,7 +325,8 @@
       const target = e.target;
       if (!target) return;
       if (target.closest(".today-check, .actions-btn, a, button")) return;
-      if (window.openTaskSlideover) window.openTaskSlideover(row.getData().id);
+      const data = row.getData();
+      if (window.openTaskSlideover) window.openTaskSlideover(data.id, data.kind);
     });
   })();
 
