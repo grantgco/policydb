@@ -159,6 +159,70 @@
       e.preventDefault();
       window.openAddTaskModal();
     });
+
+    // Snooze menu — invoked by `•••` per-row button
+    document.addEventListener("click", (e) => {
+      const btn = e.target.closest(".actions-btn");
+      if (!btn) { closeSnoozeMenu(); return; }
+      const tr = btn.closest(".tabulator-row");
+      if (!tr) return;
+      const rowId = tr.getAttribute("data-index") || tr.getAttribute("data-row-id");
+      if (!rowId) return;
+      const rect = btn.getBoundingClientRect();
+      openSnoozeMenu(Number(rowId), rect.right, rect.top);
+    });
+
+    function openSnoozeMenu(taskId, x, y) {
+      closeSnoozeMenu();
+      const menu = document.createElement("div");
+      menu.className = "snooze-menu";
+      menu.id = "snooze-menu";
+      menu.style.top = `${y + 4}px`;
+      menu.style.left = `${x - 160}px`;
+      const options = [
+        { opt: "tomorrow", label: "Snooze tomorrow" },
+        { opt: "this_week", label: "Snooze this week (Mon)" },
+        { opt: "next_week", label: "Snooze next week" },
+        { opt: "custom", label: "Custom date…" },
+      ];
+      options.forEach(({ opt, label }) => {
+        const b = document.createElement("button");
+        b.setAttribute("data-opt", opt);
+        b.textContent = label;
+        menu.appendChild(b);
+      });
+      document.body.appendChild(menu);
+      menu.querySelectorAll("button").forEach((b) => {
+        b.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          const opt = b.dataset.opt;
+          let body;
+          if (opt === "custom") {
+            const d = prompt("Snooze until (YYYY-MM-DD):");
+            if (!d) { closeSnoozeMenu(); return; }
+            body = new URLSearchParams({ option: "custom", date: d });
+          } else {
+            body = new URLSearchParams({ option: opt });
+          }
+          await fetch(`/tasks/${taskId}/snooze`, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body,
+          });
+          closeSnoozeMenu();
+          if (window.htmx) {
+            htmx.ajax("GET", "/action-center?tab=today", { target: ".today-tab", swap: "outerHTML" });
+          } else {
+            location.reload();
+          }
+        });
+      });
+    }
+
+    function closeSnoozeMenu() {
+      const existing = document.getElementById("snooze-menu");
+      if (existing) existing.remove();
+    }
   })();
 </script>
 <style>

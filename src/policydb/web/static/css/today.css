@@ -299,3 +299,27 @@
   .today-check svg .tick    { animation: none !important; stroke-dashoffset: 0; }
   .row-completing, .row-removing { transition: none !important; }
 }
+
+.snooze-menu {
+  position: fixed;
+  z-index: 9999;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0,15,71,0.18);
+  padding: 4px 0;
+  min-width: 180px;
+}
+.snooze-menu button {
+  display: block;
+  width: 100%;
+  padding: 7px 14px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--body);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: "DM Sans", sans-serif;
+}
+.snooze-menu button:hover { background: #FBF7F1; }
