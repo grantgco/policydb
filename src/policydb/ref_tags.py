@@ -95,6 +95,30 @@ def _issue_tokens(issue_uid: str) -> list[str]:
     return [issue_uid]
 
 
+def _rfi_tokens(rfi_uid: str) -> list[str]:
+    """RFI UID contributes two tokens: dashed (C1-RFI01) and undashed (C1RFI01)."""
+    undashed = rfi_uid.replace("-", "")
+    if undashed == rfi_uid:
+        return [rfi_uid]
+    return [rfi_uid, undashed]
+
+
+def _collect_policy_rfi_uids(conn: sqlite3.Connection, policy_uids: list[str]) -> list[str]:
+    """Return distinct RFI UIDs (order-preserving) for any open-or-closed bundle
+    that has at least one item referencing one of ``policy_uids``."""
+    if not policy_uids:
+        return []
+    placeholders = ",".join("?" * len(policy_uids))
+    rows = conn.execute(
+        f"SELECT DISTINCT b.rfi_uid "  # noqa: S608 — placeholders
+        f"FROM client_request_bundles b "
+        f"JOIN client_request_items i ON i.bundle_id = b.id "
+        f"WHERE i.policy_uid IN ({placeholders}) AND b.rfi_uid IS NOT NULL",
+        policy_uids,
+    ).fetchall()
+    return [r["rfi_uid"] for r in rows if r["rfi_uid"]]
+
+
 def _cn_tokens(cn_number: str | None, client_id: int) -> list[str]:
     """Client CN — strips optional leading CN prefix (case-insensitive), then re-prefixes.
 
@@ -180,6 +204,9 @@ def _walk_policy(
         (row["id"],),
     ):
         tokens.extend(_issue_tokens(r["issue_uid"]))
+    # Cascade: any RFI with an item pointing to this policy.
+    for rfi_uid in _collect_policy_rfi_uids(conn, [row["policy_uid"]]):
+        tokens.extend(_rfi_tokens(rfi_uid))
     return tokens
 
 
@@ -212,6 +239,9 @@ def _walk_issue(
         ).fetchone()
         if pol and pol["policy_uid"]:
             tokens.extend(_policy_tokens(pol["policy_uid"]))
+            # Cascade: any RFI tied to the issue's policy.
+            for rfi_uid in _collect_policy_rfi_uids(conn, [pol["policy_uid"]]):
+                tokens.extend(_rfi_tokens(rfi_uid))
     return tokens
 
 
@@ -242,12 +272,19 @@ def _walk_project(
         (pid,),
     ):
         tokens.extend(_issue_tokens(r["issue_uid"]))
-    for r in conn.execute(
-        "SELECT policy_uid FROM policies WHERE project_id = ? "
-        "AND policy_uid IS NOT NULL",
-        (pid,),
-    ):
-        tokens.extend(_policy_tokens(r["policy_uid"]))
+    member_policy_uids = [
+        r["policy_uid"]
+        for r in conn.execute(
+            "SELECT policy_uid FROM policies WHERE project_id = ? "
+            "AND policy_uid IS NOT NULL",
+            (pid,),
+        )
+    ]
+    for uid in member_policy_uids:
+        tokens.extend(_policy_tokens(uid))
+    # Cascade: RFIs tied to any policy in this project.
+    for rfi_uid in _collect_policy_rfi_uids(conn, member_policy_uids):
+        tokens.extend(_rfi_tokens(rfi_uid))
     return tokens
 
 
@@ -312,6 +349,7 @@ def _walk_program(
         tokens.extend(_issue_tokens(uid))
 
     # Member policies themselves
+    member_policy_uids: list[str] = []
     if member_policy_ids:
         placeholders = ",".join("?" * len(member_policy_ids))
         for r in conn.execute(
@@ -319,7 +357,24 @@ def _walk_program(
             f"AND policy_uid IS NOT NULL",
             member_policy_ids,
         ):
+            member_policy_uids.append(r["policy_uid"])
             tokens.extend(_policy_tokens(r["policy_uid"]))
+
+    # Cascade: RFIs tied to the program (via bundles.program_uid) OR to any
+    # member policy (via items.policy_uid). Dedup across both sources.
+    seen_rfi: set[str] = set()
+    for r in conn.execute(
+        "SELECT rfi_uid FROM client_request_bundles "
+        "WHERE program_uid = ? AND rfi_uid IS NOT NULL",
+        (row["program_uid"],),
+    ):
+        if r["rfi_uid"] not in seen_rfi:
+            seen_rfi.add(r["rfi_uid"])
+            tokens.extend(_rfi_tokens(r["rfi_uid"]))
+    for rfi_uid in _collect_policy_rfi_uids(conn, member_policy_uids):
+        if rfi_uid not in seen_rfi:
+            seen_rfi.add(rfi_uid)
+            tokens.extend(_rfi_tokens(rfi_uid))
     return tokens
 
 
