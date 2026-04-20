@@ -362,3 +362,57 @@
 .tabulator .tabulator-col[aria-sort="descending"] .sort-caret {
   opacity: 1;
 }
+
+.snooze-menu-custom {
+  padding: 10px 12px;
+  min-width: 220px;
+}
+.snooze-menu-label {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-family: "DM Sans", sans-serif;
+  margin-bottom: 4px;
+}
+.snooze-menu-date {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 12px;
+  background: var(--bg, #F7F3EE);
+  color: var(--body);
+}
+.snooze-menu-date.error {
+  border-color: var(--red);
+}
+.snooze-menu-date:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.snooze-menu-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+.snooze-menu-actions button {
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: "DM Sans", sans-serif;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--surface, #fff);
+  color: var(--body);
+}
+.snooze-menu-cancel:hover { background: #FBF7F1; }
+.snooze-menu-apply {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border-color: var(--accent) !important;
+}
+.snooze-menu-apply:hover { opacity: 0.92; }

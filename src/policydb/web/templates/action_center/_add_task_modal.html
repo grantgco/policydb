@@ -8,6 +8,8 @@
       <button type="button" class="modal-close" onclick="closeAddTaskModal()" aria-label="Close">×</button>
     </header>
 
+    <div class="form-error" id="add-task-error" hidden></div>
+
     <label class="modal-field">
       <span>Subject <span class="required">*</span></span>
       <textarea name="subject" rows="2" required maxlength="200" autofocus
@@ -89,6 +91,22 @@
     outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
+  .form-error {
+    color: var(--red);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 7px 10px;
+    border: 1px solid var(--red);
+    border-radius: 5px;
+    background: #FFF1EE;
+  }
+  .form-error[hidden] { display: none; }
+  .modal-field textarea.error,
+  .modal-field input.error,
+  .modal-field select.error {
+    border-color: var(--red);
+    outline-color: var(--red);
+  }
   .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
   .btn-ghost {
     background: transparent; border: 1px solid var(--border); color: var(--muted);
@@ -108,10 +126,19 @@
   window.submitAddTask = async function (event) {
     event.preventDefault();
     const form = event.target;
+    const errEl = document.getElementById("add-task-error");
+    const subj = form.querySelector('textarea[name="subject"]');
+    if (errEl) { errEl.hidden = true; errEl.textContent = ""; }
+    if (subj) subj.classList.remove("error");
     const body = new FormData(form);
     const resp = await fetch("/tasks/create", { method: "POST", body });
     if (!resp.ok) {
-      alert("Couldn't create task: " + (await resp.text()));
+      const msg = await resp.text();
+      if (errEl) {
+        errEl.textContent = msg || `Couldn't create task (HTTP ${resp.status})`;
+        errEl.hidden = false;
+      }
+      if (subj && resp.status === 422) subj.classList.add("error");
       return false;
     }
     const trigger = resp.headers.get("HX-Trigger");

@@ -190,27 +190,83 @@
         b.addEventListener("click", async (ev) => {
           ev.stopPropagation();
           const opt = b.dataset.opt;
-          let body;
           if (opt === "custom") {
-            const d = prompt("Snooze until (YYYY-MM-DD):");
-            if (!d) { closeSnoozeMenu(); return; }
-            body = new URLSearchParams({ option: "custom", date: d });
-          } else {
-            body = new URLSearchParams({ option: opt });
+            // Swap menu content for an inline date picker
+            showCustomDateInput(taskId, menu);
+            return;
           }
-          await fetch(`/tasks/${taskId}/snooze`, {
+          const body = new URLSearchParams({ option: opt });
+          const r = await fetch(`/tasks/${taskId}/snooze`, {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body,
           });
           closeSnoozeMenu();
-          if (window.htmx) {
+          if (r.ok && window.htmx) {
             htmx.ajax("GET", "/action-center/today/fragment", { target: ".today-tab", swap: "outerHTML" });
-          } else {
+          } else if (r.ok) {
             location.reload();
           }
         });
       });
+    }
+
+    function showCustomDateInput(taskId, menu) {
+      // Replace menu content with date input + apply/cancel
+      while (menu.firstChild) menu.removeChild(menu.firstChild);
+      menu.classList.add("snooze-menu-custom");
+      const label = document.createElement("label");
+      label.className = "snooze-menu-label";
+      label.textContent = "Snooze until";
+      const input = document.createElement("input");
+      input.type = "date";
+      input.className = "snooze-menu-date";
+      // Default to tomorrow
+      const t = new Date();
+      t.setDate(t.getDate() + 1);
+      input.value = t.toISOString().slice(0, 10);
+      const actions = document.createElement("div");
+      actions.className = "snooze-menu-actions";
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "snooze-menu-cancel";
+      cancel.textContent = "Cancel";
+      const apply = document.createElement("button");
+      apply.type = "button";
+      apply.className = "snooze-menu-apply";
+      apply.textContent = "Apply";
+      actions.appendChild(cancel);
+      actions.appendChild(apply);
+      menu.appendChild(label);
+      menu.appendChild(input);
+      menu.appendChild(actions);
+      // Prevent outer document click from closing while interacting with the picker
+      menu.addEventListener("click", (e) => e.stopPropagation());
+      input.addEventListener("click", (e) => e.stopPropagation());
+      cancel.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeSnoozeMenu();
+      });
+      apply.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const d = input.value;
+        if (!d) {
+          input.classList.add("error");
+          return;
+        }
+        const r = await fetch(`/tasks/${taskId}/snooze`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ option: "custom", date: d }),
+        });
+        closeSnoozeMenu();
+        if (r.ok && window.htmx) {
+          htmx.ajax("GET", "/action-center/today/fragment", { target: ".today-tab", swap: "outerHTML" });
+        } else if (r.ok) {
+          location.reload();
+        }
+      });
+      input.focus();
     }
 
     function closeSnoozeMenu() {
