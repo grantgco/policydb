@@ -1,0 +1,333 @@
+{
+  "parse_currency_with_magnitude": [
+    {
+      "input": "1m",
+      "output": 1000000.0,
+      "error": null
+    },
+    {
+      "input": "1M",
+      "output": 1000000.0,
+      "error": null
+    },
+    {
+      "input": "1.5m",
+      "output": 1500000.0,
+      "error": null
+    },
+    {
+      "input": "500k",
+      "output": 500000.0,
+      "error": null
+    },
+    {
+      "input": "500K",
+      "output": 500000.0,
+      "error": null
+    },
+    {
+      "input": "$2,000,000",
+      "output": 2000000.0,
+      "error": null
+    },
+    {
+      "input": "$1,234.56",
+      "output": 1234.56,
+      "error": null
+    },
+    {
+      "input": "2500",
+      "output": 2500.0,
+      "error": null
+    },
+    {
+      "input": "2500.00",
+      "output": 2500.0,
+      "error": null
+    },
+    {
+      "input": "  $1,000  ",
+      "output": 1000.0,
+      "error": null
+    },
+    {
+      "input": "",
+      "output": 0.0,
+      "error": null
+    },
+    {
+      "input": "abc",
+      "output": 0.0,
+      "error": null
+    },
+    {
+      "input": "1.2m",
+      "output": 1200000.0,
+      "error": null
+    },
+    {
+      "input": "0.5k",
+      "output": 500.0,
+      "error": null
+    },
+    {
+      "input": "2b",
+      "output": 2000000000.0,
+      "error": null
+    },
+    {
+      "input": "$15M",
+      "output": 15000000.0,
+      "error": null
+    },
+    {
+      "input": "$800K",
+      "output": 800000.0,
+      "error": null
+    },
+    {
+      "input": "$1.2B",
+      "output": 1200000000.0,
+      "error": null
+    },
+    {
+      "input": "$15,000,000",
+      "output": 15000000.0,
+      "error": null
+    }
+  ],
+  "format_phone": [
+    {
+      "input": "6502530000",
+      "output": "(650) 253-0000",
+      "error": null
+    },
+    {
+      "input": "650-253-0000",
+      "output": "(650) 253-0000",
+      "error": null
+    },
+    {
+      "input": "(650) 253-0000",
+      "output": "(650) 253-0000",
+      "error": null
+    },
+    {
+      "input": "+16502530000",
+      "output": "(650) 253-0000",
+      "error": null
+    },
+    {
+      "input": "+1 650 253 0000",
+      "output": "(650) 253-0000",
+      "error": null
+    },
+    {
+      "input": "+44 20 7946 0958",
+      "output": "+44 20 7946 0958",
+      "error": null
+    },
+    {
+      "input": "(555) 123-4567",
+      "output": "(555) 123-4567",
+      "error": null
+    },
+    {
+      "input": "5551234567",
+      "output": "5551234567",
+      "error": null
+    },
+    {
+      "input": "",
+      "output": "",
+      "error": null
+    },
+    {
+      "input": "invalid",
+      "output": "invalid",
+      "error": null
+    },
+    {
+      "input": "not a phone",
+      "output": "not a phone",
+      "error": null
+    }
+  ],
+  "clean_email": [
+    {
+      "input": "Grant@Example.com",
+      "output": "grant@example.com",
+      "error": null
+    },
+    {
+      "input": "  grant@example.com  ",
+      "output": "grant@example.com",
+      "error": null
+    },
+    {
+      "input": "GRANT@EXAMPLE.COM",
+      "output": "grant@example.com",
+      "error": null
+    },
+    {
+      "input": "grant+policy@example.com",
+      "output": "grant+policy@example.com",
+      "error": null
+    },
+    {
+      "input": "Jane Doe <jane@example.com>",
+      "output": "jane@example.com",
+      "error": null
+    },
+    {
+      "input": "<jane@example.com>",
+      "output": "jane@example.com",
+      "error": null
+    },
+    {
+      "input": "mailto:jane@example.com",
+      "output": "jane@example.com",
+      "error": null
+    },
+    {
+      "input": "jane@example.com;",
+      "output": "jane@example.com",
+      "error": null
+    },
+    {
+      "input": "\"jane@example.com\"",
+      "output": "jane@example.com",
+      "error": null
+    },
+    {
+      "input": "",
+      "output": "",
+      "error": null
+    },
+    {
+      "input": "not an email",
+      "output": "not an email",
+      "error": null
+    },
+    {
+      "input": "user@",
+      "output": "user@",
+      "error": null
+    }
+  ],
+  "build_ref_tag": [
+    {
+      "input": {
+        "cn_number": "123456789"
+      },
+      "output": "CN123456789",
+      "error": null
+    },
+    {
+      "input": {
+        "cn_number": "CN123456789"
+      },
+      "output": "CN123456789",
+      "error": null
+    },
+    {
+      "input": {
+        "cn_number": "123456789",
+        "project_id": 5
+      },
+      "output": "CN123456789-L5",
+      "error": null
+    },
+    {
+      "input": {
+        "cn_number": "123456789",
+        "project_id": 5,
+        "policy_uid": "POL-042"
+      },
+      "output": "CN123456789-L5-POL042",
+      "error": null
+    },
+    {
+      "input": {
+        "cn_number": "123456789",
+        "project_id": 5,
+        "policy_uid": "POL-042",
+        "activity_id": 789
+      },
+      "output": "CN123456789-L5-POL042-A789",
+      "error": null
+    },
+    {
+      "input": {
+        "cn_number": "123456789",
+        "policy_uid": "POL-042",
+        "thread_id": 42
+      },
+      "output": "CN123456789-POL042-COR42",
+      "error": null
+    },
+    {
+      "input": {
+        "cn_number": "123456789",
+        "rfi_uid": "CN123456789-RFI01"
+      },
+      "output": "CN123456789-RFI01",
+      "error": null
+    },
+    {
+      "input": {
+        "cn_number": "123456789",
+        "issue_uid": "A7F2C3B1"
+      },
+      "output": "CN123456789-A7F2C3B1",
+      "error": null
+    },
+    {
+      "input": {
+        "cn_number": "",
+        "client_id": 7
+      },
+      "output": "C7",
+      "error": null
+    },
+    {
+      "input": {
+        "cn_number": null
+      },
+      "output": "C0",
+      "error": null
+    },
+    {
+      "input": {
+        "cn_number": "None"
+      },
+      "output": "C0",
+      "error": null
+    },
+    {
+      "input": {
+        "cn_number": "9999999",
+        "project_id": 12,
+        "policy_uid": "POL-500"
+      },
+      "output": "CN9999999-L12-POL500",
+      "error": null
+    }
+  ],
+  "generate_issue_uid_shape": {
+    "samples": [
+      "4D25CC3A",
+      "BBB2B186",
+      "E2E087E4",
+      "4591DD13",
+      "94A72211",
+      "95D03AA1",
+      "C28A6349",
+      "E0F845CB",
+      "271E23FB",
+      "7596BAF8"
+    ],
+    "length": 8,
+    "charset": "0123456789ABCDEF"
+  }
+}
