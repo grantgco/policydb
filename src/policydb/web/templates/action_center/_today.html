@@ -80,11 +80,15 @@
     function showUndoToast(id, subject) {
       const toast = document.createElement("div");
       toast.className = "undo-toast";
-      toast.innerHTML = `
-        <span>Task completed — ${subject}</span>
-        <button class="undo-btn">Undo</button>`;
+      const span = document.createElement("span");
+      span.textContent = "Task completed — " + subject;
+      const btn = document.createElement("button");
+      btn.className = "undo-btn";
+      btn.textContent = "Undo";
+      toast.appendChild(span);
+      toast.appendChild(btn);
       document.body.appendChild(toast);
-      const undoBtn = toast.querySelector(".undo-btn");
+      const undoBtn = btn;
       const dismiss = setTimeout(() => toast.remove(), 5000);
       undoBtn.addEventListener("click", async () => {
         clearTimeout(dismiss);
@@ -113,7 +117,13 @@
         if (active.includes("overdue") && data.priority === 3) return true;
         if (active.includes("today") && data.priority === 2) return true;
         if (active.includes("tomorrow") && data.priority === 1) return true;
-        if (active.includes("this-week") && data.priority >= 0) return true;
+        if (active.includes("this-week") && data.follow_up_date) {
+          // "This week" = due on or before 7 days from today (inclusive of overdue)
+          const d = new Date(data.follow_up_date + "T00:00:00");
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          const diffDays = Math.floor((d - today) / 86400000);
+          if (diffDays <= 7) return true;
+        }
         if (active.includes("waiting") && data.is_waiting === 1) return true;
         if (active.includes("standalone") && data.client_id == null) return true;
         return false;

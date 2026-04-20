@@ -11,6 +11,12 @@
 (function (global) {
   const priorityColorMap = { 3: "overdue", 2: "today", 1: "tomorrow", 0: "later" };
 
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+  }
+
   function priorityBarFormatter(cell) {
     const row = cell.getRow().getData();
     const cls = priorityColorMap[row.priority] || "later";
@@ -29,9 +35,11 @@
 
   function subjectFormatter(cell) {
     const row = cell.getRow().getData();
-    const subj = cell.getValue() || "";
-    const ctx = row.details || (row.client_id == null ? "Standalone task" : "");
-    // Inline ref-pill treatment for IDs
+    const subj = escapeHtml(cell.getValue() || "");
+    const rawCtx = row.details || (row.client_id == null ? "Standalone task" : "");
+    const ctx = escapeHtml(rawCtx);
+    // Ref-pill replacement runs on already-escaped text. Tokens like POL-123 only
+    // contain [A-Z0-9-], which survives escape unchanged.
     const ctxHtml = ctx.replace(
       /\b(POL-\d+|CN-\d+|ISS-\d+)\b/g,
       (m) => `<span class="ref-pill">${m}</span>`
@@ -45,10 +53,10 @@
       return '<em class="muted">Standalone</em>';
     }
     const policy = row.policy_uid
-      ? `<span class="ref-pill">${row.policy_uid}</span> `
+      ? `<span class="ref-pill">${escapeHtml(row.policy_uid)}</span> `
       : "";
     const client = row.client_name
-      ? `<a href="/clients/${row.client_id}">${row.client_name}</a>`
+      ? `<a href="/clients/${encodeURIComponent(row.client_id)}">${escapeHtml(row.client_name)}</a>`
       : "";
     return policy + client;
   }
@@ -75,7 +83,7 @@
   }
 
   function contactFormatter(cell) {
-    return cell.getValue() || "—";
+    return escapeHtml(cell.getValue() || "—");
   }
 
   function completeCheckboxFormatter() {
@@ -95,6 +103,7 @@
   function buildTodayTable({ selector, rows, nudgeDays = 10, onCompleted, onSnooze }) {
     const table = new Tabulator(selector, {
       data: rows,
+      index: "id",
       layout: "fitColumns",
       height: "100%",
       placeholder: "No tasks match your filters.",
