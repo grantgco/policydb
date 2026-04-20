@@ -1651,13 +1651,18 @@ def task_create(
 def task_complete(task_id: int, conn=Depends(get_db)):
     """Mark a task complete. Returns 204 + HX-Trigger so the client can render the undo toast."""
     row = conn.execute(
-        "SELECT subject FROM activity_log WHERE id = ? AND item_kind = 'followup'",
+        "SELECT subject FROM activity_log WHERE id = ? AND item_kind IN ('followup','issue')",
         (task_id,),
     ).fetchone()
     if not row:
         return Response(status_code=404)
-    conn.execute("UPDATE activity_log SET follow_up_done = 1 WHERE id = ?", (task_id,))
+    cursor = conn.execute(
+        "UPDATE activity_log SET follow_up_done = 1 WHERE id = ? AND item_kind IN ('followup','issue')",
+        (task_id,),
+    )
     conn.commit()
+    if cursor.rowcount == 0:
+        return Response(status_code=404)
     logger.info("Task %s completed: %r", task_id, row["subject"])
 
     resp = Response(status_code=204)
@@ -1670,11 +1675,13 @@ def task_complete(task_id: int, conn=Depends(get_db)):
 @router.post("/tasks/{task_id}/undo-complete", response_class=Response)
 def task_undo_complete(task_id: int, conn=Depends(get_db)):
     """Re-open a completed task (fired by the 5s undo toast)."""
-    conn.execute(
-        "UPDATE activity_log SET follow_up_done = 0 WHERE id = ? AND item_kind = 'followup'",
+    cursor = conn.execute(
+        "UPDATE activity_log SET follow_up_done = 0 WHERE id = ? AND item_kind IN ('followup','issue')",
         (task_id,),
     )
     conn.commit()
+    if cursor.rowcount == 0:
+        return Response("Task not found", status_code=404)
     logger.info("Task %s re-opened via undo", task_id)
     return Response(status_code=204)
 
@@ -1712,10 +1719,49 @@ def task_snooze(
     else:
         return Response(f"Unknown snooze option: {option}", status_code=422)
 
-    conn.execute(
-        "UPDATE activity_log SET follow_up_date = ? WHERE id = ? AND item_kind = 'followup'",
+    cursor = conn.execute(
+        "UPDATE activity_log SET follow_up_date = ? WHERE id = ? AND item_kind IN ('followup','issue')",
         (new_date.isoformat(), task_id),
     )
     conn.commit()
+    if cursor.rowcount == 0:
+        return Response("Task not found", status_code=404)
     logger.info("Task %s snoozed to %s via %s", task_id, new_date, option)
     return Response(status_code=200)
+
+
+@router.get("/action-center/today/suggestions", response_class=HTMLResponse)
+def today_suggestions_stub(request: Request, conn=Depends(get_db)):
+    """Phase 3 will populate this with build_focus_queue(..., suggestions_only=True).
+    For Phase 2, return an empty rail so the hx-get doesn't 404.
+    """
+    html = (
+        '<div class="today-suggestions-empty" '
+        'style="color: var(--muted); font-size: 11px; text-align: center; padding: 20px 0;">'
+        'Smart suggestions appear here in Phase 3.'
+        '</div>'
+    )
+    return HTMLResponse(html)
+
+
+@router.get("/action-center/today/fragment", response_class=HTMLResponse)
+def today_fragment(request: Request, conn=Depends(get_db)):
+    """Return just the Today tab fragment (no base.html shell) for htmx.ajax refresh."""
+    today_rows = conn.execute(
+        "SELECT * FROM v_today_tasks ORDER BY priority DESC, follow_up_date ASC, id ASC"
+    ).fetchall()
+    all_clients = conn.execute(
+        "SELECT id, name FROM clients WHERE archived = 0 ORDER BY name"
+    ).fetchall()
+    nudge_days = cfg.get("focus_nudge_alert_days", 10)
+    return templates.TemplateResponse(
+        "action_center/_today.html",
+        {
+            "request": request,
+            "today_rows": [dict(r) for r in today_rows],
+            "all_clients": [dict(c) for c in all_clients],
+            "nudge_days": nudge_days,
+            "today_label": date.today().strftime("%A · %B %-d"),
+            "today_iso": date.today().isoformat(),
+        },
+    )

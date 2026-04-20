@@ -534,12 +534,17 @@ SELECT
     COALESCE(co.name, a.contact_person)   AS contact_person,
     a.disposition,
     CASE WHEN a.disposition LIKE 'Waiting%' THEN 1 ELSE 0 END AS is_waiting,
-    -- Last activity on same (client, policy) pair, for the context line
-    (SELECT MAX(a2.created_at)
-       FROM activity_log a2
-      WHERE (a2.client_id = a.client_id OR (a2.client_id IS NULL AND a.client_id IS NULL))
-        AND (a2.policy_id IS a.policy_id)
-        AND a2.id != a.id)      AS last_activity_at,
+    -- Last activity on same (client, policy) pair, for the context line.
+    -- Standalone rows (both client_id and policy_id NULL) return NULL rather
+    -- than leaking every other standalone row's created_at.
+    CASE
+        WHEN a.client_id IS NULL AND a.policy_id IS NULL THEN NULL
+        ELSE (SELECT MAX(a2.created_at)
+                FROM activity_log a2
+               WHERE (a2.client_id = a.client_id OR (a2.client_id IS NULL AND a.client_id IS NULL))
+                 AND (a2.policy_id IS a.policy_id)
+                 AND a2.id != a.id)
+    END                         AS last_activity_at,
     -- Days the row has been in a Waiting disposition (for nudge-age visual)
     CASE
         WHEN a.disposition LIKE 'Waiting%'

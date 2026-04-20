@@ -119,7 +119,7 @@
     });
   }
 
-  function buildTodayTable({ selector, rows, nudgeDays = 10, onCompleted, onSnooze }) {
+  function buildTodayTable({ selector, rows, nudgeDays = 10, onCompleted }) {
     const table = new Tabulator(selector, {
       data: rows,
       index: "id",

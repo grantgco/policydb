@@ -116,3 +116,29 @@ def test_v_today_tasks_is_waiting_flag(seeded):
     assert mapping["Overdue task"] == 0
     assert mapping["Today task"] == 1           # disposition = 'Waiting — client'
     assert mapping["Standalone task"] == 0      # no disposition set
+
+
+def test_v_today_tasks_standalone_last_activity_is_null(tmp_db):
+    """Standalone tasks must not leak other standalones' created_at into last_activity_at."""
+    conn = get_connection()
+    # Insert two standalone tasks (both with client_id=NULL, policy_id=NULL)
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, activity_type, subject, "
+        "follow_up_date, follow_up_done, item_kind, account_exec) "
+        "VALUES ('2026-04-18', NULL, 'Task', 'First standalone', '2026-04-20', 0, 'followup', 'Grant')"
+    )
+    conn.execute(
+        "INSERT INTO activity_log (activity_date, client_id, activity_type, subject, "
+        "follow_up_date, follow_up_done, item_kind, account_exec) "
+        "VALUES ('2026-04-18', NULL, 'Task', 'Second standalone', '2026-04-21', 0, 'followup', 'Grant')"
+    )
+    conn.commit()
+    rows = conn.execute(
+        "SELECT subject, last_activity_at FROM v_today_tasks "
+        "WHERE subject LIKE '%standalone%'"
+    ).fetchall()
+    for r in rows:
+        assert r["last_activity_at"] is None, (
+            f"Standalone {r['subject']!r} should have NULL last_activity_at, "
+            f"got {r['last_activity_at']!r}"
+        )
