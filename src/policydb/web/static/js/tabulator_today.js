@@ -134,14 +134,6 @@
         { column: "id", dir: "asc" },
       ],
       tableBuilt: function () { installSortCaret(this); },
-      rowClick: function (e, row) {
-        // Ignore clicks on the check, actions, or any <a>/<button> within the row —
-        // those have their own handlers. Only open slideover for "body" clicks.
-        const target = e.target;
-        if (!target) return;
-        if (target.closest(".today-check, .actions-btn, a, button")) return;
-        if (window.openTaskSlideover) window.openTaskSlideover(row.getData().id);
-      },
       columns: [
         { title: "", field: "_check", width: 40, hozAlign: "center",
           formatter: completeCheckboxFormatter, cellClick: (e, cell) => onCompleted?.(cell.getRow().getData()) },

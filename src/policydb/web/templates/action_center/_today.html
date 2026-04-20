@@ -314,6 +314,16 @@
       }
     }
     table.on("dataFiltered", () => refreshEmptyState(table));
+    // Row-click opens the activity edit slideover. Must be registered here
+    // (not in tabulator_today.js options) — Tabulator 6.3's options-dict
+    // `rowClick` doesn't register, and the external event system isn't ready
+    // at `tableBuilt` time either.
+    table.on("rowClick", (e, row) => {
+      const target = e.target;
+      if (!target) return;
+      if (target.closest(".today-check, .actions-btn, a, button")) return;
+      if (window.openTaskSlideover) window.openTaskSlideover(row.getData().id);
+    });
   })();
 
   // Grid-independent wiring — works in both populated and empty states.
