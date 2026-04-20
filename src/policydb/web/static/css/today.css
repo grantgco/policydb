@@ -2,6 +2,21 @@
    On-brand per policydb-design-system (Midnight Blue + warm neutrals).
    Visual refinements listed in the spec's "Visual refinements" section. */
 
+/* Design-system variables. Global scope is OK because today.css is only loaded
+   on the Today tab. If a future change puts these in base.html, remove this
+   block. Values come from policydb-design-system skill / CLAUDE.md Visual Design. */
+:root {
+  --brand:   #000F47;  /* Midnight Blue — primary brand */
+  --accent:  #0B4BFF;  /* Blue 750 */
+  --body:    #3D3C37;  /* Neutral 1000 — body text */
+  --bg:      #F7F3EE;  /* Neutral 250 — page bg */
+  --surface: #FFFFFF;
+  --muted:   #7B7974;  /* warm neutral muted */
+  --border:  #D9D5CF;  /* warm neutral border */
+  --red:     #B33A2A;
+  --amber:   #C77A1A;
+}
+
 .today-editorial {
   padding: 16px 20px 8px;
 }
