@@ -323,3 +323,42 @@
   font-family: "DM Sans", sans-serif;
 }
 .snooze-menu button:hover { background: #FBF7F1; }
+
+.today-empty {
+  padding: 40px 48px;
+  border-left: 3px solid var(--brand);
+  margin: 20px 20px 32px;
+  max-width: 420px;
+}
+.today-empty h3 {
+  font-family: "DM Serif Display", serif;
+  font-style: italic;
+  font-size: 22px;
+  color: var(--brand);
+  font-weight: 400;
+  margin: 0 0 6px;
+}
+.today-empty p {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 16px;
+}
+.today-empty .btn-primary { display: inline-block; }
+
+.sort-caret {
+  display: inline-block;
+  margin-left: 6px;
+  width: 10px; height: 6px;
+  vertical-align: middle;
+}
+.tabulator .tabulator-col.tabulator-sortable .tabulator-col-title .sort-caret {
+  opacity: 0.3;
+}
+.tabulator .tabulator-col[aria-sort="ascending"]  .sort-caret path,
+.tabulator .tabulator-col[aria-sort="descending"] .sort-caret path {
+  stroke: var(--accent);
+}
+.tabulator .tabulator-col[aria-sort="ascending"]  .sort-caret,
+.tabulator .tabulator-col[aria-sort="descending"] .sort-caret {
+  opacity: 1;
+}

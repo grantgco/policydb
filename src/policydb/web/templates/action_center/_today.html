@@ -34,9 +34,17 @@
     </div>
   </div>
 
-  <div id="today-grid" class="today-grid"
-       data-rows='{{ today_rows | tojson }}'
-       data-nudge-days="{{ nudge_days }}"></div>
+  {% if today_rows | length == 0 %}
+    <div class="today-empty">
+      <h3>Inbox Zero for today.</h3>
+      <p>Take the afternoon off — or add a task.</p>
+      <button class="btn btn-primary" id="today-add-task-btn-empty">+ Add task</button>
+    </div>
+  {% else %}
+    <div id="today-grid" class="today-grid"
+         data-rows='{{ today_rows | tojson }}'
+         data-nudge-days="{{ nudge_days }}"></div>
+  {% endif %}
 
   <aside id="today-suggestions"
          class="today-suggestions"
@@ -223,6 +231,35 @@
       const existing = document.getElementById("snooze-menu");
       if (existing) existing.remove();
     }
+
+    // Show "Inbox Zero" inline when filters hide everything
+    function refreshEmptyState(t) {
+      const visible = t.getData("active").length;
+      let empty = document.getElementById("today-filter-empty");
+      const grid = document.getElementById("today-grid");
+      if (!grid) return;
+      if (visible === 0 && !empty) {
+        empty = document.createElement("div");
+        empty.id = "today-filter-empty";
+        empty.className = "today-empty";
+        const h = document.createElement("h3");
+        h.textContent = "Inbox Zero for today.";
+        const p = document.createElement("p");
+        p.textContent = "All caught up — try relaxing a filter to see more.";
+        empty.appendChild(h);
+        empty.appendChild(p);
+        grid.parentElement.appendChild(empty);
+      } else if (visible > 0 && empty) {
+        empty.remove();
+      }
+    }
+    table.on("dataFiltered", () => refreshEmptyState(table));
+  })();
+
+  // Wire empty-state button (only exists when today_rows is empty)
+  (function () {
+    const emptyBtn = document.getElementById("today-add-task-btn-empty");
+    if (emptyBtn) emptyBtn.addEventListener("click", () => window.openAddTaskModal());
   })();
 </script>
 <style>

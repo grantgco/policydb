@@ -100,6 +100,25 @@
     return '<button class="mini-btn actions-btn" aria-label="Row actions">•••</button>';
   }
 
+  function installSortCaret(table) {
+    const headers = table.element.querySelectorAll(".tabulator-col.tabulator-sortable");
+    headers.forEach((h) => {
+      if (h.querySelector(".sort-caret")) return;
+      const title = h.querySelector(".tabulator-col-title");
+      if (!title) return;
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("class", "sort-caret");
+      svg.setAttribute("viewBox", "0 0 10 6");
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", "M1 1 L5 5 L9 1");
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", "currentColor");
+      path.setAttribute("stroke-width", "1.5");
+      svg.appendChild(path);
+      title.appendChild(svg);
+    });
+  }
+
   function buildTodayTable({ selector, rows, nudgeDays = 10, onCompleted, onSnooze }) {
     const table = new Tabulator(selector, {
       data: rows,
@@ -112,6 +131,7 @@
         { column: "follow_up_date", dir: "asc" },
         { column: "id", dir: "asc" },
       ],
+      tableBuilt: function () { installSortCaret(this); },
       columns: [
         { title: "", field: "_check", width: 40, hozAlign: "center",
           formatter: completeCheckboxFormatter, cellClick: (e, cell) => onCompleted?.(cell.getRow().getData()) },
