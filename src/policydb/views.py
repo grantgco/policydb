@@ -54,6 +54,7 @@ SELECT
         p.underwriter_contact
     ) AS underwriter_contact,
     p.renewal_status,
+    p.milestone_profile,
     p.commission_rate,
     p.prior_premium,
     p.account_exec,
